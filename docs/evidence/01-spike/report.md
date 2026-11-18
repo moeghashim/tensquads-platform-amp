@@ -87,4 +87,9 @@ The same test against that commit passed: the tool parked three times in one tas
 1. *Recommended:* make a new conversation with `createConversation()` from the messages in the database, make it the conversation of Petra, and ask the pi-durable team for a delete call. The old `pi_` rows stay until then. This is a gap in rule 7.7 for forgotten text in the conversation of Petra.
 2. Delete the `pi_` rows of the old conversation with our own SQL. Section 4.6 forbids this now.
 
+## Decisions of Moe (18 November 2026)
+
+- **SP-B8:** pin the unreleased pi-durable of `earendil-works/pi` main. Only `packages/loop` imports pi-durable (D3), so the pin goes in with task 04. Task 04 pins one exact commit and replaces it with the first release that has signals.
+- **SP-A8:** Petra starts a new conversation from the messages in the database. The old `pi_` rows stay until pi-durable has a delete call.
+
 **SP-A7: Neon not tested.** Test target 3 in task 13, or earlier if Moe creates a Neon branch. If `pg` fails on Neon, use the Neon serverless driver in `adapters-neon` and `pg` in `adapters-postgres`, with the same contract tests.
