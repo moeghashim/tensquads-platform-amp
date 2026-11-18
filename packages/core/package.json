@@ -4,8 +4,16 @@
 	"description": "Core library",
 	"license": "MIT",
 	"type": "module",
-	"main": "./dist/index.js",
-	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		},
+		"./contract-tests": {
+			"types": "./dist/contract-tests/index.d.ts",
+			"default": "./dist/contract-tests/index.js"
+		}
+	},
 	"files": [
 		"dist/**/*",
 		"README.md",
@@ -20,5 +28,8 @@
 	},
 	"engines": {
 		"node": ">=22"
+	},
+	"dependencies": {
+		"cordis": "4.0.0-rc.13"
 	}
 }

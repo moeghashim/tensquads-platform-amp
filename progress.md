@@ -646,3 +646,25 @@ Append-only learning log for commits and deploys. Add new entries only at the en
   - .fallowrc.json
   - spike
   - docs/evidence/01-spike
+## 2026-11-18T19:01:23.729Z
+- Trigger: commit
+- Learning: Task 02: the cordis core gives plug-ins a small context (provide, port, on, onRemove), so no plug-in imports cordis. The start checks the list before a plug-in runs. App tests load @tensquads/core from dist, so the root pretest builds the packages first.
+- Context: feat(core): start each runtime part from a plug-in list with ports
+- Branch: 02-core
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - apps/platform
+  - apps/runner
+  - package-lock.json
+  - package.json
+  - packages/core
+  - packages/contracts
+  - packages/bots
+  - packages/adapters-test
+  - scripts/check-file-length.mjs
+  - scripts/check-boundaries.mjs
+  - scripts/source-files.mjs
+  - scripts/test/boundaries.test.mjs
+  - tsconfig.json
+  - docs/where-new-behaviour-goes.md
+  - docs/evidence/02-core
