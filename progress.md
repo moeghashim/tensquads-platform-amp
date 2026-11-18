@@ -598,3 +598,21 @@ Append-only learning log for commits and deploys. Add new entries only at the en
   - .github/workflows/ci.yml
   - README.md
   - scripts/test/gate-config.test.mjs
+## 2026-11-18T11:01:51.865Z
+- Trigger: commit
+- Learning: The fork of moeghashim/pi-starter starts at commit ccdad62 (commit 3ce4c92 on main). The package scope is @tensquads. Make package-lock.json with npm 11.19.1 from packageManager: npm 10 drops the libc fields of optional packages. Commits in an Amp orb must use a verified Amp Git identity, so the author is Moe Ghashim <moe@10claws.com>.
+- Context: chore: make the starter ready for the platform tasks
+- Branch: 00-repository
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - .github/workflows/ci.yml
+  - AGENTS.md
+  - README.md
+  - apps
+  - docs
+  - package-lock.json
+  - package.json
+  - packages/core
+  - scripts/test/gate-config.test.mjs
+  - tsconfig.json
+  - tasks

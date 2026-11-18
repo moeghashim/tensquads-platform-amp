@@ -1,6 +1,8 @@
-# pi-starter
+# tensquads platform
 
-Monorepo starter for solo maintainers shipping both deployable apps and publishable packages:
+The platform of tensquads: the plug-in core, Petra, the loop of a bot, the gate, the check, the credits, the costs, the trail, the memory, the decisions and the base for evals. The plan of the first build is in `docs/PRD.md`, `docs/ARCHITECTURE.md` and `tasks/`.
+
+This repository started from the starter [moeghashim/pi-starter](https://github.com/moeghashim/pi-starter) at commit `ccdad62`. The starter gives:
 - Vercel-ready or Cloudflare Workers-ready Next.js app in `apps/web`
 - Shared package workspace in `packages/core`
 - Append-only `progress.md` learning log for solo task memory
@@ -80,7 +82,7 @@ GitHub Actions runs the required `Required checks` gate and the `Cloudflare buil
 In branch protection for `main`, require `Required checks` and `DCO`. Commits must carry a `Signed-off-by` trailer, and DCO only blocks merges once it is a required check.
 
 ```bash
-npm run dev -w @pi-starter/web
+npm run dev -w @tensquads/web
 ```
 
 See `docs/deploying-to-vercel.md` and `docs/deploying-to-cloudflare.md` for provider-specific setup.
@@ -165,5 +167,8 @@ Tooling and vendored skills this starter builds on:
 
 ## Workspaces
 
-- `@pi-starter/web`
-- `@pi-starter/core`
+- `@tensquads/web`
+- `@tensquads/core`
+- `@tensquads/platform`: the Platform Worker (`apps/platform`)
+- `@tensquads/runner`: the runner of a bot in a sandbox (`apps/runner`)
+- `@tensquads/launcher`: the launcher of the runner (`apps/launcher`)

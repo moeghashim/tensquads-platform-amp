@@ -1,5 +1,5 @@
 {
-	"name": "@pi-starter/web",
+	"name": "@tensquads/web",
 	"version": "0.0.2",
 	"private": true,
 	"scripts": {

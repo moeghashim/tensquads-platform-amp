@@ -1,0 +1,19 @@
+{
+	"name": "@tensquads/platform",
+	"version": "0.0.2",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"clean": "rm -rf dist",
+		"build": "wrangler deploy --dry-run --outdir dist",
+		"dev": "wrangler dev",
+		"check": "tsc -p tsconfig.json --noEmit"
+	},
+	"devDependencies": {
+		"@cloudflare/workers-types": "5.20261108.1",
+		"wrangler": "4.158.0"
+	},
+	"engines": {
+		"node": "26.x"
+	}
+}

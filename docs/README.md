@@ -27,3 +27,7 @@ Validation is enforced by `npm run docs:list`.
 - `docs/deploying-to-cloudflare.md`: Cloudflare Workers deployment path for `apps/web`.
 - `docs/deploying-to-vercel.md`: minimal Vercel deployment path for `apps/web`.
 - `docs/adrs/`: accepted architecture and workflow decisions.
+- `docs/PRD.md`: PRD 1, the scope, decisions and requirements of the first platform build.
+- `docs/ARCHITECTURE.md`: how the parts of the platform connect.
+- `docs/LATER.md`: what is out of scope for PRD 1.
+- `docs/evidence/`: the recording of the pull request of each task.
