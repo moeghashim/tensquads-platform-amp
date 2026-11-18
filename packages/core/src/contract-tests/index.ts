@@ -3,6 +3,7 @@
 
 export { channelContract } from "./channel.js";
 export { type CheckerModelCases, checkerModelContract } from "./checker-model.js";
+export { databaseContract } from "./database.js";
 export { deciderContract } from "./decider.js";
 export { identityContract, type KnownToken } from "./identity.js";
 export { modelContract } from "./model.js";

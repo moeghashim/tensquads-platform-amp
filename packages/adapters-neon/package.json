@@ -1,0 +1,22 @@
+{
+	"name": "@tensquads/adapters-neon",
+	"version": "0.0.2",
+	"private": true,
+	"description": "The database port, with a connection to Neon.",
+	"license": "MIT",
+	"type": "module",
+	"exports": "./src/index.ts",
+	"engines": {
+		"node": "26.x"
+	},
+	"dependencies": {
+		"@tensquads/core": "0.0.2",
+		"pg": "8.23.1"
+	},
+	"scripts": {
+		"test:neon": "tsx --test \"test/**/*.test.ts\""
+	},
+	"devDependencies": {
+		"@types/pg": "8.15.6"
+	}
+}

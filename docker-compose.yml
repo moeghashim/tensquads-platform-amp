@@ -1,0 +1,21 @@
+# A local Postgres 17 for a developer machine. `npm run dev:platform` starts it.
+# The password is a local value only. It is not the key of a service.
+services:
+  postgres:
+    image: postgres:17
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: tensquads
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tensquads"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - tensquads-postgres:/var/lib/postgresql/data
+
+volumes:
+  tensquads-postgres:

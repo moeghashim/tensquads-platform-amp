@@ -1,9 +1,9 @@
 ---
-summary: "Where new behaviour goes: the place for the code of each kind of change, and the boundary rules C2, C3 and C4"
+summary: "Where new behaviour goes: the place for the code of each kind of change, and the boundary rules C2, C3, C4 and P2"
 read_when:
   - Adding a port, an adapter, a plug-in, a hook listener, a schema, a bot or a migration.
   - Deciding which package gets a new piece of code.
-  - A boundary check (C2, C3 or C4) fails in `npm run check`.
+  - A boundary check (C2, C3, C4 or P2) fails in `npm run check`.
 ---
 
 # Where new behaviour goes
@@ -31,10 +31,11 @@ This page tells you where to put the code of each kind of change. It follows `do
 
 ## The boundary rules
 
-The script `scripts/check-boundaries.mjs` reads each source file in `apps/` and `packages/`. It checks three rules:
+The script `scripts/check-boundaries.mjs` reads each source file in `apps/` and `packages/`. It checks four rules:
 
 - **C2.** No plug-in imports another plug-in. The shared packages `core`, `contracts` and `bots` are not plug-ins. A plug-in can import them and its own files. A relative import must not leave the package. An app composes plug-ins, so an app can import them.
 - **C3.** Only `packages/core` imports cordis.
 - **C4.** No business package imports a database library or an SDK of an outside service. The business packages are all packages except `core` and the `adapters-*` packages. The script has the list of forbidden modules.
+- **P2.** Only `packages/petra` writes to the database. A file in a `src/` folder of another package or app fails if it has an SQL write. The core and the `adapters-*` packages hold the SQL of the database port, so the rule does not read them.
 
 `npm run check` runs the script. To run it alone, use `node scripts/check-boundaries.mjs`. Each violation is one line: `C<n>: <file>: <message>`. The tests are in `scripts/test/boundaries.test.mjs`.
