@@ -3,11 +3,11 @@
 	"version": "0.0.2",
 	"private": true,
 	"type": "module",
-	"main": "./dist/main.js",
+	"main": "./src/main.ts",
 	"scripts": {
 		"clean": "rm -rf dist",
 		"build": "tsc -p tsconfig.json",
-		"start": "node dist/main.js",
+		"start": "tsx src/main.ts",
 		"check": "tsc -p tsconfig.json --noEmit",
 		"test": "tsx --test \"test/**/*.test.ts\""
 	},
@@ -15,7 +15,13 @@
 		"node": "26.x"
 	},
 	"dependencies": {
-		"@tensquads/adapters-test": "0.0.2",
-		"@tensquads/core": "0.0.2"
+		"@tensquads/bot-test": "0.0.2",
+		"@tensquads/contracts": "0.0.2",
+		"@tensquads/core": "0.0.2",
+		"@tensquads/link": "0.0.2",
+		"@tensquads/loop": "0.0.2"
+	},
+	"devDependencies": {
+		"@tensquads/bots": "0.0.2"
 	}
 }

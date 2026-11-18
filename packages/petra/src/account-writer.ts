@@ -23,6 +23,15 @@ export interface NewMessage {
 	type: string;
 	body: unknown;
 	at: string;
+	// The task of the message, if it has one.
+	taskId?: string;
+}
+
+// A message of the owner to Petra, as the account reader gives it.
+export interface OwnerInput {
+	sourceRef: string;
+	channel: string;
+	text: string;
 }
 
 export interface AccountWriter {
@@ -46,6 +55,8 @@ export interface AccountReader {
 	// The seq of the message with this source reference, or undefined.
 	messageSeq(sourceRef: string): Promise<number | undefined>;
 	ownerMessagesAfter(seq: number): Promise<OwnerMessage[]>;
+	// The last messages of the owner to Petra, the oldest first.
+	lastOwnerInputs(limit: number): Promise<OwnerInput[]>;
 	isOwner(identityRef: string): Promise<boolean>;
 	balance(): Promise<number>;
 	// The status of one task of the account, or undefined.
@@ -78,8 +89,8 @@ export function accountWriter(database: Database, accountId: string): AccountWri
 		addMessage: (message) =>
 			run(async (tx) => {
 				await tx.query(
-					`INSERT INTO messages (account_id, source_ref, seq, direction, channel, sender, type, body, at)
-					 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (account_id, source_ref) DO NOTHING`,
+					`INSERT INTO messages (account_id, source_ref, seq, direction, channel, sender, type, body, at, task_id)
+					 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (account_id, source_ref) DO NOTHING`,
 					[
 						accountId,
 						message.sourceRef,
@@ -90,6 +101,7 @@ export function accountWriter(database: Database, accountId: string): AccountWri
 						message.type,
 						JSON.stringify(message.body),
 						message.at,
+						message.taskId ?? null,
 					],
 				);
 				const rows = await tx.query<{ seq: string }>(
@@ -135,6 +147,17 @@ export function accountWriter(database: Database, accountId: string): AccountWri
 					[seq],
 				);
 				return rows.map((row) => ({ ...row.body, seq: Number(row.seq), at: row.at.toISOString() }) as OwnerMessage);
+			}),
+		lastOwnerInputs: (limit) =>
+			run(async (tx) => {
+				const rows = await tx.query<{ source_ref: string; channel: string; body: { text: string } }>(
+					`SELECT source_ref, channel, body FROM messages
+					 WHERE direction = 'in' AND sender = 'owner' ORDER BY seq DESC LIMIT $1`,
+					[limit],
+				);
+				return rows
+					.reverse()
+					.map((row) => ({ sourceRef: row.source_ref, channel: row.channel, text: row.body.text }));
 			}),
 		isOwner: (identityRef) =>
 			run(async (tx) => {

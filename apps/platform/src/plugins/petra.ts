@@ -1,24 +1,36 @@
 // The plug-in list of Petra. One row is one plug-in (requirement C1).
 // To replace a plug-in, change its row. Do not change another row.
-// The object store and the queue rows come with their real adapters.
 import { postgresAdapter } from "@tensquads/adapters-postgres";
-import {
-	echoModel,
-	fixedDecider,
-	localSandbox,
-	ruleChecker,
-	testChannel,
-	testIdentity,
-	testPayment,
-} from "@tensquads/adapters-test";
+import { fixedDecider, ruleChecker, ruleModel, testChannel, testIdentity, testPayment } from "@tensquads/adapters-test";
 import type { PluginList, SqlConnections } from "@tensquads/core";
 
-export function petraPlugins(database: SqlConnections): PluginList {
+import {
+	type BucketBinding,
+	cloudflareQueue,
+	type PlatformBinding,
+	platformSandbox,
+	type QueueBinding,
+	r2ObjectStore,
+} from "./cloudflare.js";
+
+export interface PetraBindings {
+	accountId: string;
+	bucket: BucketBinding;
+	jobs: QueueBinding;
+	platform: PlatformBinding;
+}
+
+// The checker double of task 04 always says "stands" (task 06 replaces it).
+const stands = () => ({ pass: true, reason: "The checker double of task 04 always says stands." });
+
+export function petraPlugins(database: SqlConnections, bindings: PetraBindings): PluginList {
 	return [
 		postgresAdapter(database),
-		echoModel(),
-		ruleChecker(),
-		localSandbox(),
+		r2ObjectStore(bindings.bucket, `accounts/${bindings.accountId}/`),
+		cloudflareQueue(bindings.jobs),
+		ruleModel(),
+		ruleChecker(stands),
+		platformSandbox(bindings.platform),
 		fixedDecider(),
 		testIdentity(),
 		testChannel(),

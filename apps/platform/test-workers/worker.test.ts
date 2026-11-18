@@ -8,7 +8,17 @@ import {
 } from "@tensquads/contracts";
 import { beforeAll, describe, expect, test } from "vitest";
 
-import { AT, call, openStream, ownerMessage, post, setUpAccountA, until, waitForMessages } from "./helpers.js";
+import {
+	AT,
+	call,
+	openStream,
+	ownerMessage,
+	post,
+	settledMessages,
+	setUpAccountA,
+	until,
+	waitForMessages,
+} from "./helpers.js";
 
 beforeAll(setUpAccountA);
 
@@ -45,7 +55,7 @@ describe("the interface of the Platform Worker", () => {
 				"invalid_request",
 			],
 			[
-				post("/v1/commands", TEST_TOKENS.ownerA, { type: "CancelTask", commandId: "w4-d", at: AT, taskId: "t" }),
+				post("/v1/commands", TEST_TOKENS.ownerA, { type: "ForgetFact", commandId: "w4-d", at: AT, factId: "f" }),
 				400,
 				"not_available",
 			],
@@ -64,7 +74,8 @@ describe("the interface of the Platform Worker", () => {
 
 	test("W3: the list and the stream give the same messages in the same sequence, and a client continues from its last number", async () => {
 		await post("/v1/commands", TEST_TOKENS.ownerA, ownerMessage("w3-1", "first"));
-		const listed = await waitForMessages(TEST_TOKENS.ownerA, 0, 2);
+		// Earlier tests start tasks, and their replies can come late. The list is complete when it is stable.
+		const listed = await settledMessages(TEST_TOKENS.ownerA, 0);
 		const stream = await openStream(TEST_TOKENS.ownerA, 0);
 		await until(() => stream.received.length >= listed.length, "the backlog on the stream");
 		expect(stream.received).toEqual(listed);
@@ -87,7 +98,13 @@ describe("the interface of the Platform Worker", () => {
 		const before = await waitForMessages(TEST_TOKENS.ownerA, 0, 0);
 		const last = before.at(-1)?.seq ?? 0;
 		await post("/v1/commands", TEST_TOKENS.ownerA, ownerMessage("o3", "What did the squad do today?"));
-		const messages = await waitForMessages(TEST_TOKENS.ownerA, last, 1);
+		// A reply of an earlier command can come first. The test waits for the reply of this command.
+		let messages: unknown[] = [];
+		for (let i = 0; i < 100; i++) {
+			messages = await waitForMessages(TEST_TOKENS.ownerA, last, 1);
+			if (JSON.stringify(messages).includes("I started the task o3.")) break;
+			await new Promise((resolve) => setTimeout(resolve, 50));
+		}
 		expect(messages.length).toBeGreaterThan(0);
 		for (const message of messages) {
 			const parsed = ownerMessageSchema.safeParse(message);
@@ -97,7 +114,8 @@ describe("the interface of the Platform Worker", () => {
 		const texts = messages
 			.map((message) => ownerMessageSchema.parse(message))
 			.flatMap((m) => (m.type === "reply" ? [m.text] : []));
-		expect(texts).toContain("What did the squad do today?");
+		// The rule model of Petra starts a task of the test bot for this message. The task id is the command id.
+		expect(texts).toContain("I started the task o3.");
 	});
 
 	test("isolation: owner B gets no message of account A", async () => {

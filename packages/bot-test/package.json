@@ -1,0 +1,20 @@
+{
+	"name": "@tensquads/bot-test",
+	"version": "0.0.2",
+	"private": true,
+	"description": "The runner plug-in of the test bot: its instructions and its tools.",
+	"license": "MIT",
+	"type": "module",
+	"exports": "./src/index.ts",
+	"scripts": {
+		"test": "tsx --test \"test/**/*.test.ts\""
+	},
+	"engines": {
+		"node": "26.x"
+	},
+	"dependencies": {
+		"@tensquads/bots": "0.0.2",
+		"@tensquads/contracts": "0.0.2",
+		"@tensquads/core": "0.0.2"
+	}
+}

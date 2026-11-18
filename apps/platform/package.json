@@ -24,8 +24,10 @@
 	"dependencies": {
 		"@tensquads/adapters-postgres": "0.0.2",
 		"@tensquads/adapters-test": "0.0.2",
+		"@tensquads/contracts": "0.0.2",
 		"@tensquads/core": "0.0.2",
-		"@tensquads/petra": "0.0.2",
-		"@tensquads/contracts": "0.0.2"
+		"@tensquads/gateway": "0.0.2",
+		"@tensquads/loop": "0.0.2",
+		"@tensquads/petra": "0.0.2"
 	}
 }
