@@ -1,10 +1,11 @@
 // The Platform Worker (docs/ARCHITECTURE.md, section 6.5). It holds no state and makes no decision.
 // It checks who calls, then gives the call to the Petra of the account or to the Platform object.
-import { messageListQuery, ownerCommand } from "@tensquads/contracts";
+import { exitReport, gatewayCall, messageListQuery, ownerCommand } from "@tensquads/contracts";
 import { type Principal, ports, startSystem } from "@tensquads/core";
-import { PETRA_HANDLES, PLATFORM_HANDLES } from "@tensquads/petra";
+import { verifyPass } from "@tensquads/gateway";
+import { type JobMessage, PETRA_HANDLES, PLATFORM_HANDLES } from "@tensquads/petra";
 
-import { type Env, errorResponse } from "./env.js";
+import { type Env, errorResponse, readSettings, SettingError, type Settings } from "./env.js";
 import type { PetraObject } from "./petra-object.js";
 import { PLATFORM_NAME } from "./platform-object.js";
 import { platformPlugins } from "./plugins/platform.js";
@@ -15,8 +16,10 @@ export { PlatformDurableObject } from "./platform-object.js";
 // The Worker uses only the identity port. It starts the list with no database connection.
 const system = startSystem(platformPlugins({}));
 
+const bearer = (request: Request) => request.headers.get("authorization")?.match(/^Bearer (.+)$/)?.[1];
+
 async function whoCalls(request: Request): Promise<Principal | undefined> {
-	const token = request.headers.get("authorization")?.match(/^Bearer (.+)$/)?.[1];
+	const token = bearer(request);
 	return token ? (await system).port(ports.identity).whoIs(token) : undefined;
 }
 
@@ -101,8 +104,7 @@ function ownerCall(request: Request, env: Env, url: URL, owner: Owner): Promise<
 async function sendAdminCommand(request: Request, env: Env, admin: Admin): Promise<Response> {
 	const body = await readJson(request);
 	if (!handles(PLATFORM_HANDLES, (body as { type?: unknown } | undefined)?.type)) return notAvailable();
-	const platform = env.PLATFORM.get(env.PLATFORM.idFromName(PLATFORM_NAME));
-	return platform.fetch("https://platform/admin", {
+	return platformOf(env).fetch("https://platform/admin", {
 		method: "POST",
 		body: JSON.stringify({ command: body, adminRef: admin.adminId }),
 	});
@@ -113,8 +115,59 @@ function adminCall(request: Request, env: Env, url: URL, admin: Admin): Promise<
 	return isAdminCommand ? sendAdminCommand(request, env, admin) : undefined;
 }
 
-async function route(request: Request, env: Env): Promise<Response> {
-	const url = new URL(request.url);
+const platformOf = (env: Env) => env.PLATFORM.get(env.PLATFORM.idFromName(PLATFORM_NAME));
+
+// The gateway (section 3.4). The Worker checks the signature and the end time of the pass. A call that fails gets a
+// refusal with no detail and does not reach a Durable Object. The account comes from the pass, never from the body.
+async function sendGatewayCall(request: Request, env: Env, settings: Settings): Promise<Response> {
+	const token = bearer(request);
+	const claims = token ? await verifyPass(token, settings.passKey, Date.now()) : undefined;
+	if (!claims) return unauthorized();
+	const call = gatewayCall.safeParse(await readJson(request));
+	if (!call.success) return invalid();
+	const petra = env.PETRA.get(env.PETRA.idFromName(claims.accountId));
+	return petra.fetch("https://petra/gateway", { method: "POST", body: JSON.stringify({ claims, call: call.data }) });
+}
+
+const encoder = new TextEncoder();
+
+// Compares the hashes of the two values in constant time, so the time does not tell a part of the key.
+async function sameKey(given: string, key: string): Promise<boolean> {
+	const [a, b] = await Promise.all(
+		[given, key].map((value) => crypto.subtle.digest("SHA-256", encoder.encode(value))),
+	);
+	return crypto.subtle.timingSafeEqual(a as ArrayBuffer, b as ArrayBuffer);
+}
+
+// The two calls of the launcher (section 3.6). The launcher proves who it is with the key of the launcher.
+async function isLauncher(request: Request, settings: Settings): Promise<boolean> {
+	const token = bearer(request);
+	return token !== undefined && (await sameKey(token, settings.launcherKey));
+}
+
+async function launcherTake(request: Request, env: Env, settings: Settings): Promise<Response> {
+	if (!(await isLauncher(request, settings))) return unauthorized();
+	return platformOf(env).fetch("https://platform/launcher/take", { method: "POST" });
+}
+
+async function launcherReport(request: Request, env: Env, settings: Settings): Promise<Response> {
+	if (!(await isLauncher(request, settings))) return unauthorized();
+	const report = exitReport.safeParse(await readJson(request));
+	if (!report.success) return invalid();
+	return platformOf(env).fetch("https://platform/launcher/report", {
+		method: "POST",
+		body: JSON.stringify(report.data),
+	});
+}
+
+// The calls of a runner and of the launcher. They do not use the identity port.
+const MACHINE_ROUTES: Record<string, (request: Request, env: Env, settings: Settings) => Promise<Response>> = {
+	"POST /v1/gateway": sendGatewayCall,
+	"POST /v1/launcher/take": launcherTake,
+	"POST /v1/launcher/report": launcherReport,
+};
+
+async function personCall(request: Request, env: Env, url: URL): Promise<Response> {
 	const caller = await whoCalls(request);
 	if (!caller) return unauthorized();
 	const answer =
@@ -122,13 +175,35 @@ async function route(request: Request, env: Env): Promise<Response> {
 	return answer ?? errorResponse(404, "not_found", "This call does not exist.");
 }
 
+async function route(request: Request, env: Env): Promise<Response> {
+	const url = new URL(request.url);
+	const settings = readSettings(env);
+	const machine = MACHINE_ROUTES[`${request.method} ${url.pathname}`];
+	return machine ? machine(request, env, settings) : personCall(request, env, url);
+}
+
 export default {
 	async fetch(request, env): Promise<Response> {
 		try {
 			return await route(request, env);
-		} catch {
+		} catch (error) {
+			// The message of a setting names the setting and never its value (section 10).
+			if (error instanceof SettingError) console.error(error.message);
 			// The error stays inside. The answer has no stack trace and no data of an account (W4).
 			return errorResponse(500, "internal", "An internal error occurred.");
 		}
 	},
-} satisfies ExportedHandler<Env>;
+	// The consumer of the queue "jobs". It gives each command to the Petra of its account.
+	async queue(batch, env): Promise<void> {
+		for (const message of batch.messages) {
+			const { accountId, command } = message.body;
+			const petra = env.PETRA.get(env.PETRA.idFromName(accountId));
+			const response = await petra.fetch("https://petra/command", {
+				method: "POST",
+				body: JSON.stringify({ command, origin: "system" }),
+			});
+			if (response.ok) message.ack();
+			else message.retry();
+		}
+	},
+} satisfies ExportedHandler<Env, JobMessage>;

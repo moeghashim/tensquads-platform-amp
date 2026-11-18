@@ -15,7 +15,9 @@
 		"packages/*/src/**/*",
 		"packages/*/test/**/*",
 		"apps/platform/test/**/*",
-		"apps/runner/test/**/*"
+		"apps/runner/test/**/*",
+		"apps/launcher/test/**/*",
+		"apps/launcher/test-e2e/**/*"
 	],
 	"exclude": [
 		"**/dist/**"

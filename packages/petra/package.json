@@ -10,6 +10,7 @@
 		"node": "26.x"
 	},
 	"dependencies": {
+		"@tensquads/bots": "0.0.2",
 		"@tensquads/contracts": "0.0.2",
 		"@tensquads/core": "0.0.2"
 	}

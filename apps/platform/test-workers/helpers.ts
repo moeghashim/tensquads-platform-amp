@@ -53,6 +53,19 @@ export async function waitForMessages(token: string, after: number, count: numbe
 	throw new Error(`The list did not get ${count} messages.`);
 }
 
+// Waits until the list has the same messages in two reads, 300 ms apart.
+export async function settledMessages(token: string, after: number): Promise<{ seq: number }[]> {
+	let previous = "";
+	for (let i = 0; i < 50; i++) {
+		const body = (await (await call(`/v1/messages?after=${after}`, token)).json()) as { messages: { seq: number }[] };
+		const text = JSON.stringify(body.messages);
+		if (body.messages.length > 0 && text === previous) return body.messages;
+		previous = text;
+		await new Promise((resolve) => setTimeout(resolve, 300));
+	}
+	throw new Error("The list of messages did not become stable.");
+}
+
 // Opens the stream and collects each message that it sends.
 export async function openStream(token: string, after: number): Promise<{ socket: WebSocket; received: unknown[] }> {
 	const response = await call(`/v1/messages/stream?after=${after}`, token, { headers: { upgrade: "websocket" } });

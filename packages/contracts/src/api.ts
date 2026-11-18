@@ -32,11 +32,27 @@ export const messageListAnswer = z
 
 export type MessageListAnswer = z.infer<typeof messageListAnswer>;
 
+// What a task does now, from its trail rows (requirement L7). A task with no trail row has no activity.
+const taskActivity = z
+	.object({
+		taskId: id,
+		bot: id,
+		attemptNo: z.int().positive(),
+		turnNo: z.int().positive().nullable(),
+		toolCall: z.object({ id, tool: id }).strict().nullable(),
+		firstAt: z.iso.datetime(),
+		lastAt: z.iso.datetime(),
+		sinceFirstMs: z.number(),
+		sinceLastMs: z.number(),
+	})
+	.strict();
+
 // The values of tasks.status (ARCHITECTURE section 7.2).
 export const taskStatusAnswer = z
 	.object({
 		taskId: id,
 		status: z.enum(["starting", "running", "waiting for the owner", "done", "failed", "cancelled"]),
+		activity: taskActivity.optional(),
 	})
 	.strict();
 

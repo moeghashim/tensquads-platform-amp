@@ -15,4 +15,37 @@ export {
 } from "./api.js";
 export { type BotDefinition, botDefinition } from "./bot.js";
 export { type Command, command, type OwnerCommand, ownerCommand } from "./commands.js";
+export {
+	type AttemptVersions,
+	attemptVersions,
+	type Brief,
+	brief,
+	type ExitReport,
+	exitReport,
+	type GatewayCall,
+	type GatewayCallName,
+	gatewayBusy,
+	gatewayCall,
+	gatewayOk,
+	gatewayRefusal,
+	type InboxAnswer,
+	type InboxMessage,
+	inboxAnswer,
+	inboxMessage,
+	limitAnswer,
+	modelAnswer,
+	type PassClaims,
+	passClaims,
+	type ResultAnswer,
+	resultAnswer,
+	type SignalDelivery,
+	STOP_NAMES,
+	type StartAnswer,
+	type StopName,
+	signalDelivery,
+	startAnswer,
+	stopName,
+	type TaskResult,
+	taskResult,
+} from "./gateway.js";
 export { OWNER_MESSAGE_TYPES, type OwnerMessage, ownerMessage } from "./messages.js";

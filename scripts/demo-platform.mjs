@@ -5,39 +5,20 @@
 // The reply of Petra comes on the stream and in the list.
 // The first argument is the URL of the Worker. The default is http://localhost:8787.
 
+import { request, setUpAccount } from "./demo-client.mjs";
+
 const base = process.argv[2] ?? "http://localhost:8787";
 const at = new Date().toISOString();
 const run = Date.now();
 
 async function call(path, token, body) {
-	const response = await fetch(`${base}${path}`, {
-		method: body ? "POST" : "GET",
-		headers: { authorization: `Bearer ${token}` },
-		body: body ? JSON.stringify(body) : undefined,
-	});
-	const answer = await response.json();
-	console.log(`${body ? "POST" : "GET "} ${path} -> ${response.status} ${JSON.stringify(answer)}`);
-	return answer;
+	const answer = await request(base, path, token, body);
+	console.log(`${body ? "POST" : "GET "} ${path} -> ${answer.status} ${JSON.stringify(answer.body)}`);
+	return answer.body;
 }
 
 console.log("== A super admin makes the account and adds the owner");
-await call("/v1/admin/commands", "super-admin", {
-	type: "CreateAccount",
-	commandId: "account-a",
-	at,
-	name: "Cafe A",
-	timeZone: "Asia/Riyadh",
-	language: "en",
-	modelProfile: "test",
-	initialCredits: 100,
-});
-await call("/v1/admin/commands", "super-admin", {
-	type: "AddOwner",
-	commandId: "account-a/owner-a",
-	at,
-	accountId: "account-a",
-	identityRef: "owner-a",
-});
+await setUpAccount(call, at);
 
 const { messages: before } = await call("/v1/messages?after=0", "owner-a");
 const last = before.at(-1)?.seq ?? 0;

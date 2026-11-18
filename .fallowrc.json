@@ -5,11 +5,20 @@
 		"scripts/progress-append-only-check.mjs",
 		"scripts/progress-log.mjs"
 	],
-	"ignorePatterns": [".agents/skills/**", "agent/upstream/**", "spike/**"],
+	"ignorePatterns": [
+		".agents/skills/**",
+		"agent/upstream/**",
+		"spike/**"
+	],
 	"health": {
-		"ignore": ["scripts/agent-sync.mjs"]
+		"ignore": [
+			"scripts/agent-sync.mjs"
+		]
 	},
 	"audit": {
 		"gate": "new-only"
-	}
+	},
+	"ignoreDependencies": [
+		"@earendil-works/*"
+	]
 }

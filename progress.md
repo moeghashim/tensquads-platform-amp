@@ -697,3 +697,20 @@ Append-only learning log for commits and deploys. Add new entries only at the en
   - scripts/db-users.mjs
   - scripts/dev.mjs
   - scripts/demo-platform.mjs
+## 2026-11-18T22:18:37.033Z
+- Trigger: commit
+- Learning: pi-durable signals are only on pi main, so task 04 vendors six pi packages from commit f6d0c2f in vendor/pi with SHA256SUMS; the root package.json lists them only so the npm overrides can use them. The full-path tests start wrangler dev, the launcher and real runners, with a proxy that holds or kills a runner at one gateway call.
+- Context: feat(loop): add the loop, the gateway, the launcher and the runner
+- Branch: 04-loop
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - .fallowrc.json
+  - .gitattributes
+  - package-lock.json
+  - package.json
+  - tsconfig.json
+  - apps
+  - packages
+  - scripts
+  - vendor
+  - docs/evidence/04-loop

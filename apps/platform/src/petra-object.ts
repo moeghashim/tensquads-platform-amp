@@ -1,12 +1,15 @@
 // Petra: one Durable Object for each account. Its name is the account id (docs/ARCHITECTURE.md, section 8).
-// The logic is in the petra package. This class gives it the storage, the plug-ins and the stream.
+// The logic is in the petra package. This class gives it the storage, the plug-ins, the loop, the gateway and the stream.
 
 import { DurableObject } from "cloudflare:workers";
-import { command as commandSchema, type OwnerMessage } from "@tensquads/contracts";
-import { ports, type System, startSystem } from "@tensquads/core";
-import { accountWriter, type Petra, petra } from "@tensquads/petra";
+import { command as commandSchema, type GatewayCall, type OwnerMessage, type PassClaims } from "@tensquads/contracts";
+import { ports, startSystem } from "@tensquads/core";
+import { type Gateway, gateway, signPass } from "@tensquads/gateway";
+import { openPetraLoop, type PetraLoop } from "@tensquads/loop";
+import { accountWriter, outbox, type Petra, petra, petraTools, taskWork, taskWriter } from "@tensquads/petra";
 
-import { type Env, errorResponse, petraConnections } from "./env.js";
+import { type Env, errorResponse, petraConnections, readSettings } from "./env.js";
+import { PLATFORM_NAME } from "./platform-object.js";
 import { petraPlugins } from "./plugins/petra.js";
 
 // The state of one stream. It stays with the WebSocket when Petra hibernates.
@@ -16,30 +19,112 @@ interface StreamState {
 }
 
 type Writer = ReturnType<typeof accountWriter>;
+type Tasks = ReturnType<typeof taskWriter>;
+
+interface Started {
+	core: Petra;
+	writer: Writer;
+	tasks: Tasks;
+	loop: PetraLoop;
+	gw: Gateway;
+}
 
 // If the work stops, the alarm continues it.
 const RETRY_MS = 1000;
 
-export class PetraObject extends DurableObject<Env> {
-	private started: Promise<{ system: System; core: Petra; writer: Writer }> | undefined;
+// The earliest of the known times, or undefined when no time is known.
+function earliest(times: readonly (number | undefined)[]): number | undefined {
+	const known = times.filter((time): time is number => time !== undefined);
+	return known.length === 0 ? undefined : Math.min(...known);
+}
 
-	private start() {
+export class PetraObject extends DurableObject<Env> {
+	private started: Promise<Started> | undefined;
+
+	private platform() {
+		return this.env.PLATFORM.get(this.env.PLATFORM.idFromName(PLATFORM_NAME));
+	}
+
+	// The time when a launcher took the request of the attempt, from the list of the Platform object.
+	private async takenAt(accountId: string, taskId: string, attemptNo: number): Promise<number | undefined> {
+		const query = new URLSearchParams({ accountId, taskId, attemptNo: String(attemptNo) });
+		const response = await this.platform().fetch(`https://platform/sandbox/taken?${query}`);
+		const body = (await response.json()) as { takenAt: number | null };
+		return body.takenAt ?? undefined;
+	}
+
+	private start(): Promise<Started> {
 		this.started ??= (async () => {
 			const accountId = this.ctx.id.name;
 			if (!accountId) throw new Error("Petra has no account id. Use idFromName(accountId).");
-			const system = await startSystem(petraPlugins(petraConnections(this.env)));
-			const writer = accountWriter(system.port(ports.database), accountId);
-			const core = petra({
-				writer,
-				storage: this.ctx.storage,
-				model: system.port(ports.model),
-				now: () => new Date().toISOString(),
-				send: (message) => this.send(message),
+			const settings = readSettings(this.env);
+			const bindings = { accountId, bucket: this.env.FILES, jobs: this.env.JOBS, platform: this.platform() };
+			const system = await startSystem(petraPlugins(petraConnections(this.env), bindings));
+			const database = system.port(ports.database);
+			const writer = accountWriter(database, accountId);
+			const tasks = taskWriter(database, accountId);
+			const storage = this.ctx.storage;
+			const now = () => new Date().toISOString();
+			const send = (message: OwnerMessage) => this.send(message);
+			const out = outbox({ writer, storage, now, send });
+			const work = taskWork({
+				accountId,
+				tasks,
+				outbox: out,
+				storage,
+				sandbox: system.port(ports.sandbox),
+				queue: system.port(ports.queue),
+				signPass: (claims) => signPass(claims, settings.passKey),
+				takenAt: (taskId, attemptNo) => this.takenAt(accountId, taskId, attemptNo),
+				// The credits double of task 04 always says "sufficient" (task 07 replaces it).
+				creditsSufficient: async () => true,
+				settings,
+				now,
+			});
+			const model = system.port(ports.model);
+			const tools = petraTools({ writer, tasks, work, outbox: out, now });
+			const loop = await openPetraLoop({
+				storage,
+				tools,
+				complete: ({ messages }) => model.complete({ messages, tools: tools.map((tool) => tool.name) }),
+				wakeChanged: (at) => void this.arm(at),
+			});
+			const core = petra({ writer, storage, model, now, send, outbox: out, conversation: loop, work });
+			const checker = system.port(ports.checkerModel);
+			const gw = gateway({
+				accountId,
+				tasks,
+				objectStore: system.port(ports.objectStore),
+				model,
+				check: async ({ taskId, brief, result }) => {
+					const verdict = await checker.check({ taskId, goal: brief.goal, result: result.answer });
+					return { verdict: verdict.pass ? "stands" : "continue", reason: verdict.reason };
+				},
+				storage,
+				now,
+				workerCommit: settings.workerCommit,
+				settle: (claims, result) => work.afterResult(claims, result),
+				noteCall: (claims) => work.noteCall(claims.taskId, claims.attemptNo),
 			});
 			await core.recover();
-			return { system, core, writer };
+			return { core, writer, tasks, loop, gw };
 		})();
 		return this.started;
+	}
+
+	// One alarm for pi-durable and the work list: the earlier of the two next times (section 4.6).
+	private async arm(loopAt?: number): Promise<void> {
+		const next = await this.nextWake(loopAt);
+		if (next === undefined) return;
+		const current = await this.ctx.storage.getAlarm();
+		if (current === null || next < current) await this.ctx.storage.setAlarm(next);
+	}
+
+	private async nextWake(loopAt?: number): Promise<number | undefined> {
+		if (!this.started) return loopAt;
+		const { loop, core } = await this.started;
+		const retryAt = (await core.pending()) ? Date.now() + RETRY_MS : undefined;
+		return earliest([loopAt ?? loop.nextWake(), retryAt]);
 	}
 
 	// Sends a message on each stream that has its backlog. The message is in the database already.
@@ -53,24 +138,25 @@ export class PetraObject extends DurableObject<Env> {
 		}
 	}
 
+	// The routes of Petra. Each other path is /tasks/{taskId}.
+	private readonly routes: Record<string, (request: Request, started: Started, after: number) => Promise<Response>> = {
+		"/command": (request, started) => this.command(request, started),
+		"/gateway": (request, started) => this.gatewayCall(request, started.gw),
+		"/messages": async (_request, started, after) =>
+			Response.json({ messages: await started.writer.ownerMessagesAfter(after) }),
+		"/stream": (_request, started, after) => this.openStream(after, started.writer),
+	};
+
 	override async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 		const started = await this.start();
 		// Number(null) is 0. The Worker checked the value before.
 		const after = Number(url.searchParams.get("after"));
-		switch (url.pathname) {
-			case "/command":
-				return this.command(request, started.core, started.writer);
-			case "/messages":
-				return Response.json({ messages: await started.writer.ownerMessagesAfter(after) });
-			case "/stream":
-				return this.openStream(after, started.writer);
-			default:
-				return this.task(url.pathname, started.writer);
-		}
+		const route = this.routes[url.pathname];
+		return route ? route(request, started, after) : this.task(url.pathname, started);
 	}
 
-	private async command(request: Request, core: Petra, writer: Writer): Promise<Response> {
+	private async command(request: Request, { core, writer }: Started): Promise<Response> {
 		const body = (await request.json()) as { command: unknown; origin: "owner" | "system"; identityRef?: string };
 		// A command of an owner is valid only if owners has the identity for this account (section 6.1).
 		if (body.origin === "owner" && !(await writer.isOwner(body.identityRef ?? ""))) {
@@ -83,11 +169,21 @@ export class PetraObject extends DurableObject<Env> {
 		return Response.json({ status: "accepted", commandId: command.commandId });
 	}
 
+	// The Worker verified the pass and parsed the call. Petra does her own checks (section 3.4).
+	private async gatewayCall(request: Request, gw: Gateway): Promise<Response> {
+		const { claims, call } = (await request.json()) as { claims: PassClaims; call: GatewayCall };
+		const answer = await gw.call(claims, call);
+		return Response.json(answer, { status: "refused" in answer ? 403 : 200 });
+	}
+
 	// The Worker sends only /tasks/{taskId} here. Each other path finds no task.
-	private async task(pathname: string, writer: Writer): Promise<Response> {
+	// The activity comes from the trail rows of the task (requirement L7).
+	private async task(pathname: string, { tasks }: Started): Promise<Response> {
 		const taskId = decodeURIComponent(pathname.slice("/tasks/".length));
-		const status = await writer.taskStatus(taskId);
-		return status ? Response.json({ taskId, status }) : errorResponse(404, "not_found", "The task does not exist.");
+		const task = await tasks.task(taskId);
+		if (!task) return errorResponse(404, "not_found", "The task does not exist.");
+		const activity = await tasks.taskActivity(taskId, new Date().toISOString());
+		return Response.json({ taskId, status: task.status, ...(activity ? { activity } : {}) });
 	}
 
 	// The stream (requirement W3). Petra accepts the WebSocket with hibernation, sends each message after
@@ -114,10 +210,13 @@ export class PetraObject extends DurableObject<Env> {
 		return new Response(null, { status: 101, webSocket: client });
 	}
 
+	// The one alarm handler: pi-durable continues, the work list continues, then the alarm is set again.
 	override async alarm(): Promise<void> {
-		const { core } = await this.start();
+		const { core, loop } = await this.start();
+		loop.onWake();
 		await core.recover();
 		await core.work();
+		await this.arm();
 	}
 
 	override async webSocketMessage(): Promise<void> {}
