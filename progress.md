@@ -616,3 +616,23 @@ Append-only learning log for commits and deploys. Add new entries only at the en
   - scripts/test/gate-config.test.mjs
   - tsconfig.json
   - tasks
+## 2026-11-18T17:13:59.005Z
+- Trigger: commit
+- Learning: Twice on 18 Nov 2026 the macOS job got no runner and GitHub cancelled it after 15 minutes, so Required checks failed with no code fault. Ubuntu is now the required leg, and the macOS leg uses continue-on-error. Moe approved this change.
+- Context: ci: require Linux validation and keep macOS without blocking
+- Branch: ci-ubuntu
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - .github/workflows/ci.yml
+  - README.md
+  - scripts/test/gate-config.test.mjs
+## 2026-11-18T17:14:41.306Z
+- Trigger: commit
+- Learning: Twice on 18 Nov 2026 the macOS job got no runner and GitHub cancelled it after 15 minutes, so Required checks failed with no code fault. Ubuntu is now the required leg, and the macOS leg uses continue-on-error. Moe approved this change.
+- Context: ci: require Linux validation and keep macOS without blocking
+- Branch: ci-ubuntu
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - .github/workflows/ci.yml
+  - README.md
+  - scripts/test/gate-config.test.mjs

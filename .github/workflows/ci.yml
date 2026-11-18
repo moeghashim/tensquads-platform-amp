@@ -80,9 +80,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - macos-latest
+        include:
+          # Ubuntu is required. macOS runners can stay in the queue with no runner, so macOS does not block.
+          - os: ubuntu-latest
+            required: true
+          - os: macos-latest
+            required: false
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ !matrix.required }}
     timeout-minutes: 20
 
     steps:
@@ -115,6 +120,7 @@ jobs:
         run: npm run agent:check
 
       - name: Verify vendored files against pinned upstream
+        if: matrix.os == 'ubuntu-latest'
         run: npm run agent:verify-upstream
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
