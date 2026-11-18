@@ -1,0 +1,60 @@
+{
+	"name": "pi-starter",
+	"private": true,
+	"license": "MIT",
+	"type": "module",
+	"packageManager": "npm@11.19.1",
+	"workspaces": [
+		"apps/*",
+		"packages/*"
+	],
+	"scripts": {
+		"clean": "npm run clean --workspaces --if-present",
+		"build": "npm run build --workspaces --if-present",
+		"test": "node --test scripts/test/*.test.mjs && npm run test --workspaces --if-present",
+		"pr:ready": "node scripts/pr-readiness.mjs",
+		"fallow:audit": "fallow audit --changed-since origin/main",
+		"preview:cloudflare": "npm run cf:preview -w @pi-starter/web",
+		"build:cloudflare": "npm run cf:build -w @pi-starter/web",
+		"deploy:cloudflare": "npm run cf:deploy -w @pi-starter/web",
+		"typegen:cloudflare": "npm run cf:typegen -w @pi-starter/web",
+		"preflight:native-deps": "node scripts/preflight-native-deps.mjs",
+		"check": "npm run preflight:native-deps && biome check --error-on-warnings . && node scripts/check-file-length.mjs && tsc --noEmit && npm run check --workspaces --if-present",
+		"fix": "npm run preflight:native-deps && biome check --write --error-on-warnings .",
+		"doctor": "node scripts/doctor.mjs",
+		"docs:list": "node scripts/docs-list.mjs",
+		"agent:check": "node scripts/agent-check.mjs",
+		"agent:verify-upstream": "node scripts/agent-sync.mjs verify",
+		"skills:sync": "node scripts/agent-sync.mjs sync",
+		"skills:verify": "node scripts/agent-sync.mjs verify-local",
+		"commit:selective": "bash scripts/committer",
+		"commit:with-progress": "node scripts/commit-with-progress.mjs",
+		"reinstall:clean": "node scripts/reinstall-clean.mjs",
+		"version:sync": "node scripts/sync-versions.js && npm install --package-lock-only --ignore-scripts --no-audit --no-fund",
+		"version:patch": "npm version patch -ws --no-git-tag-version && npm run version:sync",
+		"version:minor": "npm version minor -ws --no-git-tag-version && npm run version:sync",
+		"version:major": "npm version major -ws --no-git-tag-version && npm run version:sync",
+		"release:patch": "node scripts/release.mjs patch",
+		"release:minor": "node scripts/release.mjs minor",
+		"release:major": "node scripts/release.mjs major",
+		"release:tag": "node scripts/release-tag.mjs",
+		"prepare": "node scripts/prepare.mjs"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.6.6",
+		"@types/node": "^26.6.6",
+		"fallow": "3.41.0",
+		"husky": "^9.1.7",
+		"tsx": "^4.23.15",
+		"typescript": "7.0.2",
+		"yaml": "2.9.1"
+	},
+	"overrides": {
+		"@node-minify/core": {
+			"glob": "12.0.0"
+		}
+	},
+	"engines": {
+		"node": "26.x"
+	}
+}

@@ -1,0 +1,29 @@
+{
+  "sourceRepo": "https://github.com/steipete/agent-scripts",
+  "pinnedCommit": "d602e8ada5e8c73fadcb4d9eaff6d16fa17462db",
+  "files": [
+    {
+      "upstreamPath": "scripts/docs-list.ts",
+      "localPath": "agent/upstream/scripts/docs-list.ts",
+      "strategy": "reference",
+      "sha256": "920cb7893fde4942c209e3306aba28fb36d0d1e739fe7e2a041e15d968fb8d5d"
+    }
+  ],
+  "localOverrides": [
+    "scripts/committer",
+    "scripts/docs-list.mjs",
+    "scripts/native-deps.mjs",
+    "scripts/preflight-native-deps.mjs",
+    "scripts/agent-sync.mjs",
+    "scripts/agent-check.mjs",
+    "scripts/docs-frontmatter-check.mjs",
+    "agent/skills-manifest.json",
+    "AGENTS.md",
+    "docs/**",
+    ".agents/skills/pickup/**",
+    ".agents/skills/handoff/**",
+    ".agents/skills/build-feature/**",
+    ".agents/skills/fix/**",
+    ".agents/skills/ship/**"
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "sourceRepo": "https://github.com/vercel-labs/agent-skills",
+  "pinnedCommit": "063bee94c3f4df8453406c830b0a7df0f2860278",
+  "files": [
+    {
+      "type": "directory",
+      "upstreamPath": "skills/react-best-practices",
+      "localPath": ".agents/skills/react-best-practices",
+      "strategy": "reference",
+      "sha256": "6b15448666375d01186ef8703ddd8196e28daaa7d8689184415a0eefea9e824c"
+    },
+    {
+      "type": "directory",
+      "upstreamPath": "skills/composition-patterns",
+      "localPath": ".agents/skills/composition-patterns",
+      "strategy": "reference",
+      "sha256": "ad46bef218ea122498c4cb9d590904514f361a92fa4160255a4ef6a1e5ddc59e"
+    },
+    {
+      "type": "directory",
+      "upstreamPath": "skills/react-view-transitions",
+      "localPath": ".agents/skills/react-view-transitions",
+      "strategy": "reference",
+      "sha256": "6e89a912a1d2b42f3361e4bddf7287645afd8e39ceaee6d3ed23a6c76e3b8a07"
+    },
+    {
+      "type": "directory",
+      "upstreamPath": "skills/web-design-guidelines",
+      "localPath": ".agents/skills/web-design-guidelines",
+      "strategy": "reference",
+      "sha256": "3759484ee014cc054ea5187696f04f55365516fa7dbd31cd6f0fa1c57edc2979"
+    }
+  ],
+  "localOverrides": [
+    "docs/agent-skills.md",
+    "AGENTS.md",
+    "README.md",
+    "docs/**",
+    ".agents/skills/pickup/**",
+    ".agents/skills/handoff/**",
+    ".agents/skills/build-feature/**",
+    ".agents/skills/fix/**",
+    ".agents/skills/ship/**"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "sourceRepo": "https://github.com/ChromeDevTools/chrome-devtools-mcp",
+  "pinnedCommit": "ff5204aaf572725557b4bb2f3f542fa3ead5f6a5",
+  "files": [
+    {
+      "type": "directory",
+      "upstreamPath": "skills/memory-leak-debugging",
+      "localPath": ".agents/skills/memory-leak-debugging",
+      "strategy": "reference",
+      "sha256": "7cb0bdb6387169f6f44f0547edb1c42338b9d7289a116c36a15f2273b852505a"
+    }
+  ],
+  "localOverrides": [
+    "docs/agent-skills.md",
+    "AGENTS.md",
+    "README.md",
+    ".mcp.json"
+  ]
+}

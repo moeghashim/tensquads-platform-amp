@@ -1,0 +1,446 @@
+#!/usr/bin/env node
+
+import { createHash } from "node:crypto";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	unlinkSync,
+	writeFileSync,
+} from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+
+const REPO_ROOT = resolve(process.cwd());
+const MANIFEST_DIRECTORY = resolve("agent");
+const MANIFEST_FILE_PATTERN = /^(manifest|skills-manifest(\.[a-z0-9-]+)?)\.json$/;
+const DIRECTORY_ENTRY_TYPE = "directory";
+
+function usage() {
+	console.log("Usage: node scripts/agent-sync.mjs <sync|verify|verify-local> [--manifest path]...");
+	console.log("Without --manifest, every manifest in agent/ is processed.");
+}
+
+function sha256(content) {
+	return createHash("sha256").update(content).digest("hex");
+}
+
+function ensureDir(filePath) {
+	mkdirSync(dirname(filePath), { recursive: true });
+}
+
+function resolveRepoPath(targetPath, label) {
+	const resolvedPath = resolve(targetPath);
+	const repoRelativePath = relative(REPO_ROOT, resolvedPath);
+	if (repoRelativePath === "" || (!repoRelativePath.startsWith("..") && !isAbsolute(repoRelativePath))) {
+		return resolvedPath;
+	}
+	throw new Error(`${label} must stay within the repository root: ${targetPath}`);
+}
+
+function githubHeaders(extra = {}) {
+	const headers = { "user-agent": "pi-starter-agent-sync", ...extra };
+	const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+	if (token) {
+		headers.authorization = `Bearer ${token}`;
+	}
+	return headers;
+}
+
+function parseGitHubRepo(sourceRepo) {
+	const normalized = sourceRepo.replace(/\.git$/, "");
+	const match = normalized.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)$/);
+	if (!match) {
+		throw new Error(`Unsupported sourceRepo format: ${sourceRepo}`);
+	}
+	return { owner: match[1], repo: match[2] };
+}
+
+function readManifest(manifestPath) {
+	if (!existsSync(manifestPath)) {
+		throw new Error(`Manifest missing at ${manifestPath}`);
+	}
+	const parsed = JSON.parse(readFileSync(manifestPath, "utf8"));
+	const entries = Array.isArray(parsed.entries) ? parsed.entries : parsed.files;
+	if (!parsed.sourceRepo || !parsed.pinnedCommit || !Array.isArray(entries)) {
+		throw new Error("Manifest is missing required fields: sourceRepo, pinnedCommit, and entries/files");
+	}
+	return { ...parsed, entries };
+}
+
+async function fetchUpstream({ sourceRepo, pinnedCommit, upstreamPath }) {
+	const { owner, repo } = parseGitHubRepo(sourceRepo);
+	const url = `https://raw.githubusercontent.com/${owner}/${repo}/${pinnedCommit}/${upstreamPath}`;
+	const response = await fetch(url, { headers: githubHeaders() });
+	if (!response.ok) {
+		throw new Error(`Failed to fetch ${upstreamPath}: HTTP ${response.status}`);
+	}
+	return Buffer.from(await response.arrayBuffer());
+}
+
+async function fetchGitHubJson(url) {
+	const response = await fetch(url, {
+		headers: githubHeaders({ accept: "application/vnd.github+json" }),
+	});
+	if (!response.ok) {
+		throw new Error(`Failed to fetch ${url}: HTTP ${response.status}`);
+	}
+	return await response.json();
+}
+
+async function fetchRecursiveTree({ sourceRepo, pinnedCommit }, cache) {
+	const cacheKey = `${sourceRepo}#${pinnedCommit}`;
+	if (cache.has(cacheKey)) {
+		return cache.get(cacheKey);
+	}
+
+	const { owner, repo } = parseGitHubRepo(sourceRepo);
+	const commit = await fetchGitHubJson(`https://api.github.com/repos/${owner}/${repo}/commits/${pinnedCommit}`);
+	const treeSha = commit?.commit?.tree?.sha;
+	if (!treeSha) {
+		throw new Error(`Could not resolve git tree for ${sourceRepo}@${pinnedCommit}`);
+	}
+
+	const tree = await fetchGitHubJson(`https://api.github.com/repos/${owner}/${repo}/git/trees/${treeSha}?recursive=1`);
+	const blobs = Array.isArray(tree.tree) ? tree.tree.filter((entry) => entry.type === "blob") : [];
+	cache.set(cacheKey, blobs);
+	return blobs;
+}
+
+async function fetchDirectorySnapshot({ sourceRepo, pinnedCommit, upstreamPath }, treeCache) {
+	const prefix = upstreamPath.endsWith("/") ? upstreamPath : `${upstreamPath}/`;
+	const blobs = await fetchRecursiveTree({ sourceRepo, pinnedCommit }, treeCache);
+	const matching = blobs.filter((entry) => entry.path === upstreamPath || entry.path.startsWith(prefix));
+	if (matching.length === 0) {
+		throw new Error(`No upstream files found under ${upstreamPath}`);
+	}
+
+	const files = [];
+	for (const entry of matching) {
+		const content = await fetchUpstream({ sourceRepo, pinnedCommit, upstreamPath: entry.path });
+		files.push({
+			relativePath: entry.path.slice(prefix.length),
+			content,
+		});
+	}
+
+	files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+	return files;
+}
+
+function computeDirectoryHash(files) {
+	const hash = createHash("sha256");
+	for (const file of files) {
+		hash.update(file.relativePath);
+		hash.update("\0");
+		hash.update(sha256(file.content));
+		hash.update("\0");
+	}
+	return hash.digest("hex");
+}
+
+function applyRewrites(entry, relativePath, content) {
+	const rewrites = Array.isArray(entry.rewrites) ? entry.rewrites : [];
+	const matchingRewrites = rewrites.filter((rewrite) => rewrite.path === relativePath);
+	if (matchingRewrites.length === 0) {
+		return content;
+	}
+
+	let text = content.toString("utf8");
+	for (const rewrite of matchingRewrites) {
+		if (typeof rewrite.search !== "string" || typeof rewrite.replace !== "string") {
+			throw new Error(`${entry.localPath}: rewrite for ${relativePath} must include search and replace strings`);
+		}
+		if (!text.includes(rewrite.search)) {
+			throw new Error(`${entry.localPath}: rewrite search text not found in ${relativePath}`);
+		}
+		text = text.replaceAll(rewrite.search, rewrite.replace);
+	}
+	return Buffer.from(text);
+}
+
+function applyDirectoryRewrites(entry, files) {
+	return files.map((file) => ({
+		relativePath: file.relativePath,
+		content: applyRewrites(entry, file.relativePath, file.content),
+	}));
+}
+
+function listLocalFiles(rootPath) {
+	if (!existsSync(rootPath)) {
+		return [];
+	}
+
+	const files = [];
+	for (const entry of readdirSync(rootPath, { withFileTypes: true })) {
+		const fullPath = join(rootPath, entry.name);
+		if (entry.isDirectory()) {
+			files.push(...listLocalFiles(fullPath));
+			continue;
+		}
+		if (entry.isFile()) {
+			files.push(fullPath);
+		}
+	}
+	return files.sort((a, b) => a.localeCompare(b));
+}
+
+function removeEmptyDirectories(rootPath) {
+	if (!existsSync(rootPath) || !statSync(rootPath).isDirectory()) {
+		return;
+	}
+
+	for (const entry of readdirSync(rootPath, { withFileTypes: true })) {
+		if (entry.isDirectory()) {
+			removeEmptyDirectories(join(rootPath, entry.name));
+		}
+	}
+
+	if (readdirSync(rootPath).length === 0) {
+		rmSync(rootPath, { recursive: true, force: true });
+	}
+}
+
+async function syncFileEntry(manifest, entry) {
+	const upstreamContent = applyRewrites(
+		entry,
+		entry.upstreamPath,
+		await fetchUpstream({
+			sourceRepo: manifest.sourceRepo,
+			pinnedCommit: manifest.pinnedCommit,
+			upstreamPath: entry.upstreamPath,
+		}),
+	);
+	const expectedHash = sha256(upstreamContent);
+	entry.sha256 = expectedHash;
+
+	const localPath = resolveRepoPath(entry.localPath, `Manifest localPath for ${entry.upstreamPath}`);
+	ensureDir(localPath);
+
+	const previous = existsSync(localPath) ? readFileSync(localPath) : null;
+	if (previous !== null && Buffer.compare(previous, upstreamContent) === 0) {
+		return [];
+	}
+
+	writeFileSync(localPath, upstreamContent);
+
+	if (entry.localPath === "scripts/committer") {
+		chmodSync(localPath, 0o755);
+	}
+
+	return [entry.localPath];
+}
+
+async function syncDirectoryEntry(manifest, entry, treeCache) {
+	const files = applyDirectoryRewrites(
+		entry,
+		await fetchDirectorySnapshot(
+			{
+				sourceRepo: manifest.sourceRepo,
+				pinnedCommit: manifest.pinnedCommit,
+				upstreamPath: entry.upstreamPath,
+			},
+			treeCache,
+		),
+	);
+	entry.sha256 = computeDirectoryHash(files);
+
+	const localRoot = resolveRepoPath(entry.localPath, `Manifest localPath for ${entry.upstreamPath}`);
+	mkdirSync(localRoot, { recursive: true });
+
+	const expectedRelativePaths = new Set(files.map((file) => file.relativePath));
+	const changedPaths = [];
+
+	for (const file of files) {
+		const destination = join(localRoot, file.relativePath);
+		ensureDir(destination);
+		const previous = existsSync(destination) ? readFileSync(destination) : null;
+		if (previous !== null && Buffer.compare(previous, file.content) === 0) {
+			continue;
+		}
+		writeFileSync(destination, file.content);
+		changedPaths.push(relative(process.cwd(), destination));
+	}
+
+	for (const existingFile of listLocalFiles(localRoot)) {
+		const relativePath = relative(localRoot, existingFile);
+		if (expectedRelativePaths.has(relativePath)) {
+			continue;
+		}
+		unlinkSync(existingFile);
+		changedPaths.push(relative(process.cwd(), existingFile));
+	}
+
+	removeEmptyDirectories(localRoot);
+
+	return changedPaths.sort((a, b) => a.localeCompare(b));
+}
+
+async function sync(manifest, manifestPath) {
+	let changedFiles = 0;
+	const updatedFiles = [];
+	const treeCache = new Map();
+
+	for (const entry of manifest.entries) {
+		const changedPaths =
+			(entry.type ?? "file") === DIRECTORY_ENTRY_TYPE
+				? await syncDirectoryEntry(manifest, entry, treeCache)
+				: await syncFileEntry(manifest, entry);
+		if (changedPaths.length === 0) {
+			continue;
+		}
+		changedFiles += changedPaths.length;
+		updatedFiles.push(...changedPaths);
+	}
+
+	writeFileSync(
+		manifestPath,
+		`${JSON.stringify({ ...manifest, entries: undefined, files: manifest.entries }, null, 2)}\n`,
+	);
+
+	if (changedFiles === 0) {
+		console.log("agent-sync: all managed files already up to date.");
+	} else {
+		console.log("agent-sync: updated managed files:");
+		for (const filePath of updatedFiles) {
+			console.log(`- ${filePath}`);
+		}
+	}
+
+	console.log(`agent-sync: manifest updated at ${manifest.pinnedCommit}.`);
+}
+
+// Provenance: each manifest hash must match the pinned upstream commit. Together with the local check,
+// this proves the vendored files match upstream without comparing them file by file.
+async function verify(manifest, manifestPath) {
+	const mismatches = [];
+	const treeCache = new Map();
+	const source = { sourceRepo: manifest.sourceRepo, pinnedCommit: manifest.pinnedCommit };
+
+	for (const entry of manifest.entries) {
+		const upstreamHash =
+			(entry.type ?? "file") === DIRECTORY_ENTRY_TYPE
+				? computeDirectoryHash(
+						applyDirectoryRewrites(
+							entry,
+							await fetchDirectorySnapshot({ ...source, upstreamPath: entry.upstreamPath }, treeCache),
+						),
+					)
+				: sha256(
+						applyRewrites(
+							entry,
+							entry.upstreamPath,
+							await fetchUpstream({ ...source, upstreamPath: entry.upstreamPath }),
+						),
+					);
+		if (entry.sha256 !== upstreamHash) {
+			mismatches.push(`${entry.localPath}: manifest hash is stale for ${entry.upstreamPath}`);
+		}
+		mismatches.push(...localMismatches(entry));
+	}
+
+	return report("verify", manifestPath, mismatches, "matches its pinned upstream commit");
+}
+
+function report(mode, manifestPath, mismatches, successMessage) {
+	const label = relative(REPO_ROOT, manifestPath);
+	if (mismatches.length === 0) {
+		console.log(`agent-sync ${mode} passed: ${label} ${successMessage}.`);
+		return true;
+	}
+	console.error(`agent-sync ${mode} failed for ${label}:`);
+	for (const mismatch of mismatches) {
+		console.error(`- ${mismatch}`);
+	}
+	return false;
+}
+
+function readLocalDirectorySnapshot(localRoot) {
+	return listLocalFiles(localRoot)
+		.map((filePath) => ({ relativePath: relative(localRoot, filePath), content: readFileSync(filePath) }))
+		.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+}
+
+function localMismatches(entry) {
+	const localPath = resolveRepoPath(entry.localPath, `Manifest localPath for ${entry.upstreamPath}`);
+	const isDirectory = (entry.type ?? "file") === DIRECTORY_ENTRY_TYPE;
+	if (!existsSync(localPath)) {
+		return [`${entry.localPath}: ${isDirectory ? "directory" : "file"} missing`];
+	}
+	const localHash = isDirectory
+		? computeDirectoryHash(readLocalDirectorySnapshot(localPath))
+		: sha256(readFileSync(localPath));
+	return localHash === entry.sha256 ? [] : [`${entry.localPath}: local content does not match the manifest sha256`];
+}
+
+// Offline integrity check: vendored files on disk must hash to the pinned manifest values.
+function verifyLocal(manifest, manifestPath) {
+	return report("verify-local", manifestPath, manifest.entries.flatMap(localMismatches), "matches vendored files");
+}
+
+function defaultManifestPaths() {
+	return readdirSync(MANIFEST_DIRECTORY)
+		.filter((name) => MANIFEST_FILE_PATTERN.test(name))
+		.sort()
+		.map((name) => join(MANIFEST_DIRECTORY, name));
+}
+
+function parseArgs(argv) {
+	const mode = argv[2];
+	if (mode !== "sync" && mode !== "verify" && mode !== "verify-local") {
+		usage();
+		process.exit(1);
+	}
+
+	const manifestPaths = [];
+	for (let index = 3; index < argv.length; index += 1) {
+		if (argv[index] !== "--manifest") {
+			throw new Error(`Unknown argument: ${argv[index]}`);
+		}
+		const providedPath = argv[index + 1];
+		if (!providedPath) {
+			throw new Error("Expected a path after --manifest");
+		}
+		manifestPaths.push(resolveRepoPath(providedPath, "Manifest path"));
+		index += 1;
+	}
+
+	return { mode, manifestPaths: manifestPaths.length > 0 ? manifestPaths : defaultManifestPaths() };
+}
+
+async function runManifest(mode, manifestPath) {
+	const manifest = readManifest(manifestPath);
+	for (const entry of manifest.entries) {
+		if (!entry.upstreamPath || !entry.localPath || !entry.strategy) {
+			throw new Error("Each manifest file entry must include upstreamPath, localPath, and strategy");
+		}
+	}
+
+	if (mode === "sync") {
+		await sync(manifest, manifestPath);
+		return true;
+	}
+	if (mode === "verify-local") {
+		return verifyLocal(manifest, manifestPath);
+	}
+	return await verify(manifest, manifestPath);
+}
+
+async function main() {
+	const { mode, manifestPaths } = parseArgs(process.argv);
+	let passed = true;
+	for (const manifestPath of manifestPaths) {
+		passed = (await runManifest(mode, manifestPath)) && passed;
+	}
+	if (!passed) {
+		process.exitCode = 1;
+	}
+}
+
+main().catch((error) => {
+	console.error(`agent-sync failed: ${error instanceof Error ? error.message : String(error)}`);
+	process.exit(1);
+});
