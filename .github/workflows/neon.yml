@@ -1,0 +1,66 @@
+name: Neon contract tests
+
+# Requirement V4. The Neon adapter passes the same contract tests as the plain Postgres adapter.
+# This job runs on demand and each night. It does not run on pull requests.
+# The Neon branch must have the migrations and the three login users.
+# The step "Apply migrations and make login users" makes them with the owner connection NEON_OWNER_URL.
+# The step takes the password of the login users from NEON_PETRA_URL. The three NEON_* login URLs must use the same password.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neon-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  neon-contract-tests:
+    name: Neon contract tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEON_OWNER_URL: ${{ secrets.NEON_OWNER_URL }}
+      NEON_PETRA_URL: ${{ secrets.NEON_PETRA_URL }}
+      NEON_PLATFORM_URL: ${{ secrets.NEON_PLATFORM_URL }}
+      NEON_ADMIN_VIEWS_URL: ${{ secrets.NEON_ADMIN_VIEWS_URL }}
+
+    steps:
+      - name: Check the Neon secrets
+        run: |
+          missing=""
+          for name in NEON_OWNER_URL NEON_PETRA_URL NEON_PLATFORM_URL NEON_ADMIN_VIEWS_URL; do
+            if [ -z "${!name}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::These repository secrets are empty:$missing. Moe must add a Neon branch and set these secrets."
+            exit 1
+          fi
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build packages
+        run: npm run build -w packages --if-present
+
+      - name: Apply migrations and make login users
+        run: |
+          DB_USER_PASSWORD="$(node -e 'process.stdout.write(decodeURIComponent(new URL(process.env.NEON_PETRA_URL).password))')"
+          echo "::add-mask::$DB_USER_PASSWORD"
+          DATABASE_URL="$NEON_OWNER_URL" DB_USER_PASSWORD="$DB_USER_PASSWORD" npm run db:setup
+
+      - name: Run the contract tests against Neon
+        run: npm run test:neon -w @tensquads/adapters-neon

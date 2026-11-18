@@ -4,8 +4,12 @@ import test from "node:test";
 import { scriptedModel } from "@tensquads/adapters-test";
 import { type Plugin, type PortKey, ports, startSystem } from "@tensquads/core";
 
-import { petraPlugins } from "../src/plugins/petra.js";
-import { platformPlugins } from "../src/plugins/platform.js";
+import { petraPlugins as petraList } from "../src/plugins/petra.js";
+import { platformPlugins as platformList } from "../src/plugins/platform.js";
+
+// The lists start with no database connection. A test that uses the database port gives one.
+const petraPlugins = petraList({});
+const platformPlugins = platformList({});
 
 // A plug-in that uses the model port on "task/start". It does not know which adapter provides the port.
 function asker(answers: string[]): Plugin {
@@ -39,6 +43,7 @@ test("C1: Petra starts from her plug-in list, with one plug-in for each row", as
 		ports.channel,
 		ports.payment,
 	];
+	provided.push(ports.database);
 	for (const key of provided) {
 		assert.ok(system.port(key), `the port "${key.name}" is provided`);
 	}

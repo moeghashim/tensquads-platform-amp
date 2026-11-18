@@ -12,8 +12,17 @@ function portKey<T>(name: string): PortKey<T> {
 }
 
 // Database. The real adapters are Postgres and Neon (task 03).
+// One write is one short transaction. A transaction of Petra names the account first (section 7.1).
+export interface Transaction {
+	query<Row>(sql: string, params?: readonly unknown[]): Promise<Row[]>;
+}
+
+// Who the transaction runs as. The adapter sets the database role, and for Petra the account.
+export type DatabaseScope = { role: "petra"; accountId: string } | { role: "platform" } | { role: "admin views" };
+
 export interface Database {
-	query<Row>(sql: string, params: readonly unknown[]): Promise<Row[]>;
+	transaction<T>(scope: DatabaseScope, work: (tx: Transaction) => Promise<T>): Promise<T>;
+	close(): Promise<void>;
 }
 
 // Object store. The real adapter is R2 (task 03).

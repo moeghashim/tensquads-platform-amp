@@ -1,0 +1,100 @@
+{
+  "version": 2,
+  "providers": {
+    "agentmail": {
+      "name": "AgentMail"
+    },
+    "auth0": {
+      "name": "Auth0"
+    },
+    "blaxel": {
+      "name": "Blaxel"
+    },
+    "clerk": {
+      "name": "Clerk"
+    },
+    "cloudflare": {
+      "name": "Cloudflare"
+    },
+    "daytona": {
+      "name": "Daytona"
+    },
+    "neon": {
+      "name": "Neon"
+    },
+    "posthog": {
+      "name": "PostHog"
+    },
+    "prvdr_61uk2uwsoydl7tubp57fg": {
+      "name": "prvdr_61UK2uWsoydL7tUBp57Fg"
+    },
+    "prvdr_61uwhmpomgyc7qqhs53su": {
+      "name": "prvdr_61UWhMpOMGYc7qQhs53su"
+    },
+    "render": {
+      "name": "Render"
+    },
+    "workos": {
+      "name": "WorkOS"
+    }
+  },
+  "resources": {
+    "ci-db": {
+      "livemode": true,
+      "name": "ci-db",
+      "providerName": "Neon",
+      "serviceId": "postgres"
+    },
+    "cloudflare": {
+      "livemode": true,
+      "name": "cloudflare",
+      "providerName": "Cloudflare",
+      "serviceId": "workers"
+    },
+    "cloudflare-plan": {
+      "livemode": true,
+      "name": "cloudflare-plan",
+      "providerName": "Cloudflare",
+      "serviceId": "workers:paid"
+    },
+    "neon": {
+      "livemode": true,
+      "name": "neon",
+      "providerName": "Neon",
+      "serviceId": "postgres"
+    },
+    "neon-plan": {
+      "livemode": true,
+      "name": "neon-plan",
+      "providerName": "Neon",
+      "serviceId": "launch"
+    }
+  },
+  "environments": {
+    "ci": {
+      "output": ".env.ci",
+      "resources": [
+        {
+          "resourceName": "ci-db"
+        }
+      ]
+    },
+    "default": {
+      "output": ".env",
+      "resources": [
+        {
+          "resourceName": "cloudflare"
+        },
+        {
+          "resourceName": "cloudflare-plan"
+        },
+        {
+          "resourceName": "neon"
+        },
+        {
+          "resourceName": "neon-plan"
+        }
+      ]
+    }
+  }
+}

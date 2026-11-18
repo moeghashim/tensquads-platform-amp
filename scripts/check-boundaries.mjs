@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// The boundary checks C2, C3 and C4 (docs/PRD.md, section 8).
+// The boundary checks C2, C3, C4 and P2 (docs/PRD.md, section 8).
 // The script reads the source files and finds each import specifier.
 // The first argument is the root directory. The default is the current directory.
 
@@ -135,12 +135,29 @@ function checkC4(owner, specifier) {
 	return null;
 }
 
-const violations = { C2: [], C3: [], C4: [] };
+// P2: only the petra package writes to the database. The core (the port and its contract tests) and the
+// adapters-* packages hold SQL for the port itself. Test folders are not runtime code, so the rule reads src/ only.
+const SQL_WRITE = /\b(INSERT\s+INTO|UPDATE\s+[\w."]+\s+SET|DELETE\s+FROM|TRUNCATE|MERGE\s+INTO)\b/i;
+
+const mayWrite = (owner) => owner === "petra" || owner === "core" || Boolean(owner?.startsWith("adapters-"));
+
+function checkP2(relativePath, owner, text) {
+	if (mayWrite(owner) || !relativePath.split(sep).includes("src")) {
+		return null;
+	}
+	const match = text.match(SQL_WRITE);
+	return match ? `writes to the database ("${match[1]}"); only packages/petra may write` : null;
+}
+
+const violations = { C2: [], C3: [], C4: [], P2: [] };
 
 for (const file of sourceFiles(ROOT)) {
 	const relativePath = relative(ROOT, file);
 	const owner = packageOf(relativePath);
-	for (const specifier of findSpecifiers(readFileSync(file, "utf8"))) {
+	const text = readFileSync(file, "utf8");
+	const p2 = checkP2(relativePath, owner, text);
+	if (p2) violations.P2.push(`${relativePath}: ${p2}`);
+	for (const specifier of findSpecifiers(text)) {
 		const c2 = owner === null ? null : checkC2(file, owner, specifier);
 		const c3 = checkC3(owner, specifier);
 		const c4 = checkC4(owner, specifier);
@@ -154,6 +171,7 @@ const descriptions = {
 	C2: "no plug-in imports another plug-in",
 	C3: "only the core imports cordis",
 	C4: "no business package imports a database library or an SDK of an outside service",
+	P2: "only the petra package writes to the database",
 };
 
 let failed = false;

@@ -178,3 +178,39 @@ test("C2 C3 C4: the real repository passes", () => {
 	const result = spawnSync(process.execPath, [SCRIPT, root], { encoding: "utf8" });
 	assertPasses(result);
 });
+
+test("P2: a package other than petra that writes to the database fails", (t) => {
+	const result = check(t, {
+		...packages,
+		"packages/gate/src/a.ts": 'await tx.query("INSERT INTO actions (task_id) VALUES ($1)", [id]);\n',
+	});
+	assertFails(result, "P2", "packages/gate/src/a.ts");
+});
+
+test("P2: an update, a delete or a truncate in an app fails", (t) => {
+	for (const sql of ["UPDATE events SET status = 'done'", "DELETE FROM ledger", "TRUNCATE trail"]) {
+		const result = check(t, { ...packages, "apps/platform/src/a.ts": `const q = "${sql}";\n` });
+		assertFails(result, "P2", "apps/platform/src/a.ts");
+	}
+});
+
+test("P2: petra, the core, the adapters and the tests may write", (t) => {
+	const write = 'await tx.query("INSERT INTO ledger (account_id) VALUES ($1)", [id]);\n';
+	const result = check(t, {
+		...packages,
+		"packages/petra/src/w.ts": write,
+		"packages/core/src/contract-tests/d.ts": write,
+		"packages/adapters-postgres/src/d.ts": write,
+		"apps/platform/test/w.test.ts": write,
+		"apps/platform/test-workers/setup.ts": 'await c.query("TRUNCATE accounts CASCADE");\n',
+	});
+	assertPasses(result);
+});
+
+test("P2: a read, or the word update in a comment, is not a write", (t) => {
+	const result = check(t, {
+		...packages,
+		"packages/gate/src/a.ts": '// Update the list of rules.\nconst q = "SELECT * FROM rules";\n',
+	});
+	assertPasses(result);
+});

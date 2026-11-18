@@ -35,13 +35,38 @@ Inspired by [badlogic/pi-mono](https://github.com/badlogic/pi-mono), [steipete/a
 
 ## Setup
 
+Do these steps on a new clone. Use Node 26 from `.nvmrc`.
+
 ```bash
 nvm install
 nvm use
+npm ci
+
+# Start a local Postgres 17. Or use any Postgres 17 and set DATABASE_URL to its owner connection.
+docker compose up -d --wait
+export DATABASE_URL=postgres://postgres:local@127.0.0.1:5432/tensquads
+export DB_USER_PASSWORD=local
+
+npm run db:setup
 npm run doctor
-npm install
 npm run check
 npm test
+```
+
+`npm run db:setup` runs `npm run db:migrate` and then `npm run db:users`. `db:migrate` applies each new migration in `db/`, in the sequence of its number:
+
+- `db/0001_roles.sql`: the three database roles.
+- `db/0002_platform_tables.sql`: the tables that have no account.
+- `db/0003_account_tables.sql`: the tables of each account.
+- `db/0004_security.sql`: the grants and the row-level security.
+
+`db:users` makes the login users `ts_petra_login`, `ts_platform_login` and `ts_admin_views_login` with the password `DB_USER_PASSWORD`. The database tests of `npm test` need `DATABASE_URL` and `DB_USER_PASSWORD`.
+
+To start the platform on one machine, run `npm run dev:platform`. It uses `DATABASE_URL` if you set it. Else it starts the Postgres of `docker-compose.yml`. It runs `db:setup`, writes `apps/platform/.dev.vars`, and starts the Worker in the local emulator and the launcher. Ctrl-C stops them. Then, in a second terminal, `npm run demo:platform` makes an account with an admin command, sends an owner message, and shows the reply of Petra on the stream and in the list.
+
+Before you hand off or ship, also run:
+
+```bash
 npm run fallow:audit
 npm run agent:check
 ```

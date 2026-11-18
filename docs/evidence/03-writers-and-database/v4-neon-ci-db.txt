@@ -1,0 +1,22 @@
+$ npm run db:setup
+db:migrate: 4 migrations, 0 new.
+db:users: ts_petra_login is a member of ts_petra.
+db:users: ts_platform_login is a member of ts_platform.
+db:users: ts_admin_views_login is a member of ts_admin_views.
+[exit 0]
+$ npm run test:neon -w @tensquads/adapters-neon
+▶ V4: database-neon: database contract
+  ✔ P3: the role of Petra gets zero rows of a second account (4162.616476ms)
+  ✔ P3: the role of Petra cannot write a row of a second account (3274.522988ms)
+  ✔ P3: the role of the Platform object cannot read an account table (760.318564ms)
+  ✔ P3: the role of the views cannot read an account table or the accounts (1507.984236ms)
+  ✔ a transaction that fails writes nothing (4118.904296ms)
+✔ V4: database-neon: database contract (13826.49193ms)
+ℹ tests 5
+ℹ suites 1
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+[exit 0]

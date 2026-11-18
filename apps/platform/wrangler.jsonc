@@ -4,6 +4,13 @@
 	"main": "src/index.ts",
 	"compatibility_date": "2026-07-22",
 	"compatibility_flags": ["nodejs_compat"],
+	"durable_objects": {
+		"bindings": [
+			{ "name": "PETRA", "class_name": "PetraObject" },
+			{ "name": "PLATFORM", "class_name": "PlatformDurableObject" }
+		]
+	},
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["PetraObject", "PlatformDurableObject"] }],
 	"observability": {
 		"enabled": true
 	}

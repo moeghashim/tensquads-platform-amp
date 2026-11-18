@@ -8,17 +8,24 @@
 		"build": "wrangler deploy --dry-run --outdir dist",
 		"dev": "wrangler dev",
 		"check": "tsc -p tsconfig.json --noEmit",
-		"test": "tsx --test \"test/**/*.test.ts\""
+		"test": "tsx --test \"test/**/*.test.ts\" && vitest run"
 	},
 	"devDependencies": {
+		"@cloudflare/vitest-plugin": "1.8.4",
 		"@cloudflare/workers-types": "5.20261108.1",
+		"@types/pg": "8.15.6",
+		"pg": "8.23.1",
+		"vitest": "5.1.1",
 		"wrangler": "4.158.0"
 	},
 	"engines": {
 		"node": "26.x"
 	},
 	"dependencies": {
+		"@tensquads/adapters-postgres": "0.0.2",
 		"@tensquads/adapters-test": "0.0.2",
-		"@tensquads/core": "0.0.2"
+		"@tensquads/core": "0.0.2",
+		"@tensquads/petra": "0.0.2",
+		"@tensquads/contracts": "0.0.2"
 	}
 }

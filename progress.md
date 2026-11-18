@@ -668,3 +668,32 @@ Append-only learning log for commits and deploys. Add new entries only at the en
   - tsconfig.json
   - docs/where-new-behaviour-goes.md
   - docs/evidence/02-core
+## 2026-11-18T20:36:24.168Z
+- Trigger: commit
+- Learning: Task 03: pg from a Durable Object throws after the socket closes, so the adapter ignores errors after end(). The Workers vitest plugin config loads in plain Node, so it cannot import workspace TypeScript. Fallow estimates CRAP with no coverage for code that tests call through fetch, so each Worker function stays at cyclomatic 4 or less.
+- Context: feat(petra): add the two writers, the database and the Worker interface
+- Branch: 03-writers-and-database
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - .github/workflows
+  - .gitignore
+  - .projects/state.json
+  - README.md
+  - apps/platform
+  - db
+  - docker-compose.yml
+  - docs/where-new-behaviour-goes.md
+  - docs/evidence/03-writers-and-database
+  - package-lock.json
+  - package.json
+  - packages/contracts
+  - packages/core
+  - packages/petra
+  - packages/adapters-postgres
+  - packages/adapters-neon
+  - scripts/check-boundaries.mjs
+  - scripts/test/boundaries.test.mjs
+  - scripts/db-migrate.mjs
+  - scripts/db-users.mjs
+  - scripts/dev.mjs
+  - scripts/demo-platform.mjs
