@@ -4,9 +4,19 @@
 import { DurableObject } from "cloudflare:workers";
 import { command as commandSchema, type GatewayCall, type OwnerMessage, type PassClaims } from "@tensquads/contracts";
 import { ports, startSystem } from "@tensquads/core";
+import { gate } from "@tensquads/gate";
 import { type Gateway, gateway, signPass } from "@tensquads/gateway";
 import { openPetraLoop, type PetraLoop } from "@tensquads/loop";
-import { accountWriter, outbox, type Petra, petra, petraTools, taskWork, taskWriter } from "@tensquads/petra";
+import {
+	accountWriter,
+	actionWriter,
+	outbox,
+	type Petra,
+	petra,
+	petraTools,
+	taskWork,
+	taskWriter,
+} from "@tensquads/petra";
 
 import { type Env, errorResponse, petraConnections, readSettings } from "./env.js";
 import { PLATFORM_NAME } from "./platform-object.js";
@@ -58,7 +68,13 @@ export class PetraObject extends DurableObject<Env> {
 			const accountId = this.ctx.id.name;
 			if (!accountId) throw new Error("Petra has no account id. Use idFromName(accountId).");
 			const settings = readSettings(this.env);
-			const bindings = { accountId, bucket: this.env.FILES, jobs: this.env.JOBS, platform: this.platform() };
+			const bindings = {
+				accountId,
+				bucket: this.env.FILES,
+				jobs: this.env.JOBS,
+				platform: this.platform(),
+				paymentHoldMs: settings.paymentHoldMs,
+			};
 			const system = await startSystem(petraPlugins(petraConnections(this.env), bindings));
 			const database = system.port(ports.database);
 			const writer = accountWriter(database, accountId);
@@ -67,19 +83,35 @@ export class PetraObject extends DurableObject<Env> {
 			const now = () => new Date().toISOString();
 			const send = (message: OwnerMessage) => this.send(message);
 			const out = outbox({ writer, storage, now, send });
+			const actions = actionWriter(database, accountId);
+			const queue = system.port(ports.queue);
+			// The gate calls the payment and the channel. A runner has no path to them (requirement G1).
+			const actionGate = gate({
+				accountId,
+				store: actions,
+				tasks,
+				payment: system.port(ports.payment),
+				channel: system.port(ports.channel),
+				tell: (message) => out.tell(message),
+				queue,
+				toolLimitMs: settings.toolLimitMs,
+				now,
+			});
 			const work = taskWork({
 				accountId,
 				tasks,
 				outbox: out,
 				storage,
 				sandbox: system.port(ports.sandbox),
-				queue: system.port(ports.queue),
+				queue,
 				signPass: (claims) => signPass(claims, settings.passKey),
 				takenAt: (taskId, attemptNo) => this.takenAt(accountId, taskId, attemptNo),
 				// The credits double of task 04 always says "sufficient" (task 07 replaces it).
 				creditsSufficient: async () => true,
 				settings,
 				now,
+				actions,
+				checkAction: (commandId, actionId) => actionGate.checkJob(commandId, actionId),
 			});
 			const model = system.port(ports.model);
 			const tools = petraTools({ writer, tasks, work, outbox: out, now });
@@ -94,6 +126,8 @@ export class PetraObject extends DurableObject<Env> {
 			const gw = gateway({
 				accountId,
 				tasks,
+				actions,
+				gate: actionGate,
 				objectStore: system.port(ports.objectStore),
 				model,
 				check: async ({ taskId, brief, result }) => {

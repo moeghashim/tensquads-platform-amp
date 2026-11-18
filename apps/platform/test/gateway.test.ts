@@ -3,10 +3,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { testBot } from "@tensquads/bots";
 import { attemptVersions, type Brief, type GatewayCall, type PassClaims, type TaskResult } from "@tensquads/contracts";
 import type { Database, ModelAnswer, ModelRequest } from "@tensquads/core";
 import { type GatewayAnswer, gateway } from "@tensquads/gateway";
-import { platformWriter, taskWriter } from "@tensquads/petra";
+import { actionWriter, platformWriter, taskWriter } from "@tensquads/petra";
 
 import { testDatabase, uniqueId } from "./db.js";
 
@@ -75,6 +76,9 @@ async function setup(model?: (request: ModelRequest) => Promise<ModelAnswer>): P
 	const gw = gateway({
 		accountId,
 		tasks,
+		actions: actionWriter(database, accountId),
+		// The tests of the gate are in gate.test.ts.
+		gate: { action: async () => ({ status: "refused", reason: "This test has no gate." }) },
 		objectStore: memoryMap(),
 		model: {
 			complete: async (request) => {
@@ -170,6 +174,7 @@ test("L5: the start of a first attempt gives the brief, the forget list and no j
 		forget: ["f1"],
 		journal: null,
 		signals: [],
+		drafts: [],
 	});
 	assert.equal((await tasks.task(taskId))?.status, "running");
 	assert.deepEqual(await gw.call(claims(), { call: "inbox", callNo: 2, runnerId: "runner-a" }), {
@@ -288,7 +293,7 @@ test("L11: each attempt records the versions that it ran with", async () => {
 		workerCommit: "worker-abc",
 		runnerCommit: "runner-def",
 		pluginListHash: "plugins-123",
-		botVersion: "0.1.0",
+		botVersion: testBot.version,
 		provider: "test",
 		model: "scripted",
 	});

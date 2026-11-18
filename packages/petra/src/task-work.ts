@@ -5,6 +5,7 @@ import { testBot } from "@tensquads/bots";
 import type { BotDefinition, Brief, Command, PassClaims, TaskResult } from "@tensquads/contracts";
 import type { Queue, Sandbox } from "@tensquads/core";
 
+import type { ActionWriter, StoredAction } from "./action-writer.js";
 import type { Outbox, PetraStorage } from "./outbox.js";
 import type { AttemptRow, TaskReader, TaskRow, TaskWriter } from "./task-writer.js";
 import { answerRef } from "./task-writer.js";
@@ -35,6 +36,10 @@ export interface TaskWorkDeps {
 	creditsSufficient: (credits: number) => Promise<boolean>;
 	settings: TaskSettings;
 	now: () => string;
+	// The actions, the approvals and the rules (section 4.4).
+	actions: ActionWriter;
+	// The "check action" job of the gate (packages/gate). This package does not import the gate (requirement C2).
+	checkAction: (commandId: string, actionId: string) => Promise<void>;
 }
 
 export interface NewTask {
@@ -62,6 +67,12 @@ export interface TaskWork {
 	resendRequests(): Promise<void>;
 	// The gateway calls this for each call, so the check of the task knows the last call.
 	noteCall(taskId: string, attemptNo: number): Promise<void>;
+	// The command SetRule writes one rules row, with the command id as its key.
+	setRule(command: Extract<Command, { type: "SetRule" }>): Promise<void>;
+	// The command ApprovalDecision (section 4.4, requirements G4 and G10).
+	approvalDecision(command: Extract<Command, { type: "ApprovalDecision" }>): Promise<void>;
+	// The "check action" job (section 9).
+	checkAction(commandId: string, actionId: string): Promise<void>;
 }
 
 const BOTS: readonly BotDefinition[] = [testBot];
@@ -95,6 +106,9 @@ function briefOf(task: NewTask): Brief {
 		replyTo: task.replyTo,
 	};
 }
+
+const endedText = (status: string): string =>
+	`The task ${status === "cancelled" ? "was cancelled" : "ended"}. No action goes out.`;
 
 // The id of a check job has the attempt and the number of the check. The task id is the target.
 const CHECK_ID = /^check\/(\d+)\/(\d+)\//;
@@ -214,6 +228,80 @@ export function taskWork(deps: TaskWorkDeps): TaskWork {
 		if (nowMs() - (await lastCall(attempt)) < settings.silentMs) return check.next();
 		await tasks.endAttempt({ taskId: task.id, attemptNo, exit: "silent", at: deps.now() });
 		await failure(task, commandId);
+	}
+
+	// A status message to the owner about one task, with the command id as its key.
+	async function tellStatus(task: TaskRow, commandId: string, step: string): Promise<void> {
+		const current = await tasks.currentAttempt(task.id);
+		await outbox.tell({
+			sourceRef: `cmd/${commandId}/status`,
+			channel: task.brief.replyTo,
+			taskId: task.id,
+			body: {
+				type: "status",
+				taskId: task.id,
+				bot: task.bot,
+				attempt: current?.attemptNo ?? 1,
+				step,
+				since: deps.now(),
+			},
+		});
+	}
+
+	// Writes the decision of the owner. Returns false when another command decided the approval before.
+	async function writeDecision(
+		action: StoredAction,
+		command: Extract<Command, { type: "ApprovalDecision" }>,
+	): Promise<boolean> {
+		const key = { taskId: action.taskId, toolCallId: action.toolCallId, contentHash: action.contentHash };
+		const status = command.decision === "approve" ? "approved" : "rejected";
+		await deps.actions.decideApproval({ ...key, status, decidedBy: command.commandId, at: command.at });
+		const approval = await deps.actions.approval(key.taskId, key.toolCallId, key.contentHash);
+		if (approval?.decidedBy !== command.commandId) return false;
+		// A rejected action gets its final status now. The model gets the refusal in the next attempt (G10).
+		if (status === "rejected") {
+			await deps.actions.moveAction({ ...key, from: ["pending"], to: "rejected", at: deps.now() });
+		}
+		return true;
+	}
+
+	// Applies a decision of the owner. Returns the text of a status message when the decision changes nothing.
+	async function applyDecision(
+		task: TaskRow,
+		action: StoredAction,
+		command: Extract<Command, { type: "ApprovalDecision" }>,
+	): Promise<string | undefined> {
+		// A decision for a task that ended does nothing (section 6.1).
+		if (ENDED.has(task.status)) return endedText(task.status);
+		if (await continueCause(task, command.commandId)) return undefined;
+		// An approval belongs to one action with its exact content (requirement G4).
+		if (command.contentHash !== action.contentHash) {
+			return "The approval does not match the content of the action. Nothing changed.";
+		}
+		if (!(await writeDecision(action, command))) return "The approval was decided before. Nothing changed.";
+		// A task that runs gets the signal with its next inbox call. A task that waits gets a new attempt.
+		if (task.status === "waiting for the owner") await afterApproval(task, command.commandId);
+		return undefined;
+	}
+
+	// The owner can decide before the gate set "waiting for the owner". Then the decision started no attempt.
+	// When the runner parks, Petra starts the attempt of each decision that has no attempt.
+	async function missedDecision(task: TaskRow): Promise<void> {
+		const causes = new Set((await tasks.attempts(task.id)).map((attempt) => attempt.causeRef));
+		const missed = (await deps.actions.decisionCommands(task.id)).find((commandId) => !causes.has(commandId));
+		if (missed) await afterApproval(task, missed);
+	}
+
+	// The decision goes to the runner as a signal, with the tool-call id as its key (section 4.4).
+	async function afterApproval(task: TaskRow, commandId: string): Promise<void> {
+		const attemptNo = await tasks.addAttempt({
+			taskId: task.id,
+			causeRef: commandId,
+			reason: "after an approval",
+			versions: {},
+		});
+		await tasks.setTaskStatus({ taskId: task.id, status: "running", at: deps.now() });
+		await requestSandbox(task, attemptNo);
 	}
 
 	return {
@@ -339,6 +427,10 @@ export function taskWork(deps: TaskWorkDeps): TaskWork {
 				await tasks.endAttempt({ taskId, attemptNo, exit: "question", at });
 				await tasks.setTaskStatus({ taskId, status: "waiting for the owner", stop: "question", at });
 				await tellQuestion(task, result.question);
+			} else if (result.stop === "waiting") {
+				// The gate set the status "waiting for the owner" when it asked for the approval (section 4.4).
+				await tasks.endAttempt({ taskId, attemptNo, exit: "waiting", at });
+				await missedDecision(task);
 			} else if (result.stop === "max_turns" || result.stop === "max_budget") {
 				await tasks.endAttempt({ taskId, attemptNo, exit: result.stop, at });
 				await tasks.setTaskStatus({ taskId, status: "done", stop: result.stop, at });
@@ -366,5 +458,19 @@ export function taskWork(deps: TaskWorkDeps): TaskWork {
 		async noteCall(taskId, attemptNo) {
 			await deps.storage.put(lastCallKey(taskId, attemptNo), nowMs());
 		},
+
+		async setRule(command) {
+			await deps.actions.addRule({ commandId: command.commandId, ...command.rule, at: command.at });
+		},
+
+		async approvalDecision(command) {
+			const action = await deps.actions.actionById(command.approvalId);
+			const task = action ? await tasks.task(action.taskId) : undefined;
+			if (!action || !task) return;
+			const nothing = await applyDecision(task, action, command);
+			if (nothing) await tellStatus(task, command.commandId, nothing);
+		},
+
+		checkAction: (commandId, actionId) => deps.checkAction(commandId, actionId),
 	};
 }

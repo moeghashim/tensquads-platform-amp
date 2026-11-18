@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { type ChannelMessage, ports, type SendOutcome, startSystem } from "@tensquads/core";
+import { type ChannelMessage, type PaymentOrder, ports, type SendOutcome, startSystem } from "@tensquads/core";
 import { channelContract, paymentContract } from "@tensquads/core/contract-tests";
 
-import { testChannel, testPayment } from "../src/index.js";
+import { sendHold, testChannel, testPayment } from "../src/index.js";
 
 const outcomes: readonly SendOutcome[] = ["confirmed", "not_sent", "unknown"];
 
@@ -32,4 +32,21 @@ test("channel-test records each send and gives the configured outcome", async ()
 test('channel-test answers "confirmed" by default', async () => {
 	const channel = (await startSystem([testChannel()])).port(ports.channel);
 	assert.equal(await channel.send({ id: "m-1", to: "customer-1", text: "Hello." }), "confirmed");
+});
+
+test("G9: a held payment is recorded at once, and answers only after the release", async () => {
+	const paid: PaymentOrder[] = [];
+	const { hold, release } = sendHold();
+	const payment = (await startSystem([testPayment({ paid, hold })])).port(ports.payment);
+	let answered = false;
+	const sending = payment.pay({ id: "p-1", to: "cust-1", amount: 15, currency: "USD" }).then((outcome) => {
+		answered = true;
+		return outcome;
+	});
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(paid.length, 1);
+	assert.equal(answered, false);
+	assert.equal(await payment.status("p-1"), "confirmed");
+	release();
+	assert.equal(await sending, "confirmed");
 });

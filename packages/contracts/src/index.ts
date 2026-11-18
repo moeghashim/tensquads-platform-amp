@@ -16,10 +16,14 @@ export {
 export { type BotDefinition, botDefinition } from "./bot.js";
 export { type Command, command, type OwnerCommand, ownerCommand } from "./commands.js";
 export {
+	type ActionAnswer,
 	type AttemptVersions,
+	actionAnswer,
 	attemptVersions,
 	type Brief,
 	brief,
+	type DraftFile,
+	draftFile,
 	type ExitReport,
 	exitReport,
 	type GatewayCall,

@@ -714,3 +714,16 @@ Append-only learning log for commits and deploys. Add new entries only at the en
   - scripts
   - vendor
   - docs/evidence/04-loop
+## 2026-11-18T23:32:30.472Z
+- Trigger: commit
+- Learning: An action tool is built by the loop from the bot definition: journal copy, then one action call, then a park on the tool-call id for an approval. Petra also starts the attempt of a decision that came before the task was waiting, when the runner parks. The full-path tests count payment sends from the Worker log.
+- Context: feat(gate): add the gate, approvals, rules and drafts
+- Branch: 05-gate
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - apps
+  - docs
+  - package-lock.json
+  - package.json
+  - packages
+  - scripts

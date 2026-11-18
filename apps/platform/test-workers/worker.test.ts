@@ -118,6 +118,31 @@ describe("the interface of the Platform Worker", () => {
 		expect(texts).toContain("I started the task o3.");
 	});
 
+	test("G2: the Worker accepts the commands SetRule and ApprovalDecision of an owner", async () => {
+		const rule = {
+			type: "SetRule",
+			commandId: "g2-rule",
+			at: AT,
+			rule: { kind: "money_limit", params: { maxAmount: 20_000_000 } },
+		};
+		// An approval of an action that does not exist does nothing. The command is still accepted.
+		const approval = {
+			type: "ApprovalDecision",
+			commandId: "g2-approval",
+			at: AT,
+			approvalId: "no-task/call-1",
+			decision: "approve",
+			contentHash: "0".repeat(64),
+		};
+		for (const command of [rule, approval]) {
+			const response = await post("/v1/commands", TEST_TOKENS.ownerA, command);
+			expect({ status: response.status, body: await response.json() }).toEqual({
+				status: 200,
+				body: { status: "accepted", commandId: command.commandId },
+			});
+		}
+	});
+
 	test("isolation: owner B gets no message of account A", async () => {
 		const response = await call("/v1/messages?after=0", TEST_TOKENS.ownerB);
 		expect(await response.json()).toEqual({ messages: [] });

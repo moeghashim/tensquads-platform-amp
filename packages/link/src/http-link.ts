@@ -2,6 +2,8 @@
 // It has the shape of the interface Link of the loop. It does not import the loop, because no plug-in imports
 // another plug-in (requirement C2). The runner gives the error for a refusal, so the loop knows it.
 import {
+	type ActionAnswer,
+	actionAnswer,
 	type GatewayCall,
 	type GatewayCallName,
 	gatewayBusy,
@@ -49,6 +51,10 @@ export interface HttpLink {
 	inbox(): Promise<InboxAnswer>;
 	journal(copy: string): Promise<void>;
 	result(result: TaskResult): Promise<ResultAnswer>;
+	// An action tool is one call to `action` (requirement G1).
+	action(call: { toolCallId: string; tool: string; content: Record<string, unknown> }): Promise<ActionAnswer>;
+	// Saves one changed file to the draft store (requirement G11). The body is base64 text.
+	draft(path: string, body: string): Promise<void>;
 }
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -171,5 +177,9 @@ export function httpLink(options: HttpLinkOptions): HttpLink {
 			await request({ call: "journal", copy }, gatewayOk);
 		},
 		result: (result) => request({ call: "result", result }, resultAnswer),
+		action: (call) => request({ call: "action", ...call }, actionAnswer),
+		draft: async (path, body) => {
+			await request({ call: "draft", path, body }, gatewayOk);
+		},
 	};
 }

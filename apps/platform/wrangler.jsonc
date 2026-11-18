@@ -11,9 +11,9 @@
 		]
 	},
 	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["PetraObject", "PlatformDurableObject"] }],
-	// The copies of the journal (section 7.4). The keys start with accounts/{accountId}/.
+	// The copies of the journal and the draft files (section 7.4). The keys start with accounts/{accountId}/.
 	"r2_buckets": [{ "binding": "FILES", "bucket_name": "tensquads-files" }],
-	// The queue "jobs": Petra puts the "check task" jobs in it. The same Worker takes them.
+	// The queue "jobs": Petra puts the "check task" and "check action" jobs in it. The same Worker takes them.
 	"queues": {
 		"producers": [{ "binding": "JOBS", "queue": "jobs" }],
 		"consumers": [{ "queue": "jobs", "max_batch_size": 10, "max_batch_timeout": 1 }]
@@ -23,7 +23,10 @@
 		"WORKER_COMMIT": "local",
 		"ATTEMPT_MAX_MS": "1800000",
 		"SILENT_MS": "120000",
-		"LAUNCHER_TAKE_WAIT_MS": "2000"
+		"LAUNCHER_TAKE_WAIT_MS": "2000",
+		"TOOL_LIMIT_MS": "60000",
+		// Only for the tests of the full path: each payment of the test adapter waits this long.
+		"PAYMENT_HOLD_MS": "0"
 	},
 	"observability": {
 		"enabled": true
