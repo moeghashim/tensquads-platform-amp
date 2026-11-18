@@ -17,16 +17,13 @@ test("Fallow CI prepares generated Next.js types before auditing a clean checkou
 	assert.equal(steps[audit].with["no-cache"], true);
 });
 
-test("validation requires Ubuntu, runs macOS without blocking, and verifies pinned upstream skills on Ubuntu", () => {
+test("validation requires Ubuntu, runs macOS outside the summary, and verifies pinned upstream skills", () => {
 	const validation = workflow.jobs["required-checks"];
-	assert.deepEqual(validation.strategy.matrix.include, [
-		{ os: "ubuntu-latest", required: true },
-		{ os: "macos-latest", required: false },
-	]);
-	assert.equal(validation["continue-on-error"], `\${{ !matrix.required }}`);
+	assert.deepEqual(validation.strategy.matrix.os, ["ubuntu-latest"]);
 	const upstream = validation.steps.find((step) => step.run === "npm run agent:verify-upstream");
 	assert.ok(upstream);
-	assert.equal(upstream.if, "matrix.os == 'ubuntu-latest'");
+	assert.equal(upstream.if, undefined);
+	assert.equal(workflow.jobs["macos-checks"]["runs-on"], "macos-latest");
 });
 
 test("gate commands reach npm with the .nvmrc Node on PATH and no nvm", () => {

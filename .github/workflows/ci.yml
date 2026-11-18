@@ -80,14 +80,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # Ubuntu is required. macOS runners can stay in the queue with no runner, so macOS does not block.
-          - os: ubuntu-latest
-            required: true
-          - os: macos-latest
-            required: false
+        os:
+          - ubuntu-latest
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ !matrix.required }}
     timeout-minutes: 20
 
     steps:
@@ -120,7 +115,41 @@ jobs:
         run: npm run agent:check
 
       - name: Verify vendored files against pinned upstream
-        if: matrix.os == 'ubuntu-latest'
         run: npm run agent:verify-upstream
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # macOS runners can stay in the queue with no runner until GitHub cancels the job.
+  # This job runs the same checks on macOS, and the Required checks summary does not depend on it.
+  macos-checks:
+    name: macOS checks
+    runs-on: macos-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build packages
+        run: npm run build -w packages --if-present
+
+      - name: Build platform programs
+        run: npm run build -w @tensquads/platform -w @tensquads/runner -w @tensquads/launcher
+
+      - name: Check formatting, linting, and types
+        run: npm run check
+
+      - name: Run tests
+        run: npm test
+
+      - name: Run agent guardrails
+        run: npm run agent:check
