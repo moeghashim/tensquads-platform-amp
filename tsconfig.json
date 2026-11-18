@@ -3,6 +3,9 @@
 	"compilerOptions": {
 		"noEmit": true,
 		"paths": {
+			"@tensquads/core/contract-tests": [
+				"./packages/core/src/contract-tests/index.ts"
+			],
 			"@tensquads/*": [
 				"./packages/*/src/index.ts"
 			]
@@ -10,7 +13,9 @@
 	},
 	"include": [
 		"packages/*/src/**/*",
-		"packages/*/test/**/*"
+		"packages/*/test/**/*",
+		"apps/platform/test/**/*",
+		"apps/runner/test/**/*"
 	],
 	"exclude": [
 		"**/dist/**"
