@@ -36,7 +36,7 @@ Cloudflare Workers Builds should run from the repository root so npm workspaces 
 - Deploy command: `npm run deploy:cloudflare`
 - Worker configuration: `apps/web/wrangler.jsonc`
 
-The Worker name configured in the Cloudflare dashboard must match `pi-starter-web` from `apps/web/wrangler.jsonc`. Forks should rename both together.
+The Worker name configured in the Cloudflare dashboard must match `tensquads-web` from `apps/web/wrangler.jsonc`. Forks should rename both together.
 
 The Wrangler configuration points Workers at the OpenNext worker and static assets, enables `nodejs_compat`, and enables observability. `apps/web/open-next.config.ts` holds adapter-specific configuration.
 
@@ -45,7 +45,7 @@ The Wrangler configuration points Workers at the OpenNext worker and static asse
 Use the normal Next.js server for daily development:
 
 ```bash
-npm run dev -w @pi-starter/web
+npm run dev -w @tensquads/web
 ```
 
 Preview the production bundle in the Workers runtime before relying on Worker-specific behavior:

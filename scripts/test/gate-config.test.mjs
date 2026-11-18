@@ -11,7 +11,7 @@ const workflow = parse(readFileSync(new URL(".github/workflows/ci.yml", root), "
 test("Fallow CI prepares generated Next.js types before auditing a clean checkout", () => {
 	const steps = workflow.jobs["fallow-audit"].steps;
 	const install = steps.findIndex((step) => step.run === "npm ci");
-	const typegen = steps.findIndex((step) => step.run === "npm exec -w @pi-starter/web -- next typegen");
+	const typegen = steps.findIndex((step) => step.run === "npm exec -w @tensquads/web -- next typegen");
 	const audit = steps.findIndex((step) => step.uses?.startsWith("fallow-rs/fallow@"));
 	assert.ok(install >= 0 && typegen > install && audit > typegen);
 	assert.equal(steps[audit].with["no-cache"], true);
