@@ -1,0 +1,20 @@
+{
+	"name": "tensquads-spike-01",
+	"main": "worker.ts",
+	"compatibility_date": "2026-07-22",
+	"compatibility_flags": ["nodejs_compat"],
+	"durable_objects": { "bindings": [{ "name": "PETRA", "class_name": "SpikePetra" }] },
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["SpikePetra"] }],
+	"r2_buckets": [{ "binding": "JOURNAL", "bucket_name": "tensquads-spike-journal" }],
+	"hyperdrive": [
+		{
+			"binding": "HYPERDRIVE",
+			"id": "00000000000000000000000000000000",
+			"localConnectionString": "postgres://postgres:spike@127.0.0.1:5433/postgres"
+		}
+	],
+	"vars": {
+		"PG_URL": "postgres://postgres:spike@127.0.0.1:5433/postgres",
+		"FAKE_MODEL_URL": "http://127.0.0.1:8791/v1"
+	}
+}

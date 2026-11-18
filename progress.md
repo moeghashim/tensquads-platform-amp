@@ -636,3 +636,13 @@ Append-only learning log for commits and deploys. Add new entries only at the en
   - .github/workflows/ci.yml
   - README.md
   - scripts/test/gate-config.test.mjs
+## 2026-11-18T12:52:27.474Z
+- Trigger: commit
+- Learning: Task 01: cordis 4.0.0-rc.13 and pi-durable 1.5.2 run in workerd and Node 26 and type-check with TypeScript 7. Journal copies are 120-170 KB and about 15 ms, so copies are sufficient. Action tools must be replay safe: without it the action went out two times. pi-durable 1.5.2 has no signals or parks (only on pi main) and no call that deletes a conversation. pg over cloudflare:sockets works from a Worker and a Durable Object; the Neon serverless driver cannot reach a plain Postgres.
+- Context: spike: prove cordis, pi-durable and the database driver work together
+- Branch: 01-spike
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - .fallowrc.json
+  - spike
+  - docs/evidence/01-spike
