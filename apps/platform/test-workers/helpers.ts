@@ -53,17 +53,18 @@ export async function waitForMessages(token: string, after: number, count: numbe
 	throw new Error(`The list did not get ${count} messages.`);
 }
 
-// Waits until the list has the same messages in two reads, 300 ms apart.
-export async function settledMessages(token: string, after: number): Promise<{ seq: number }[]> {
+// Waits until the list has the given text and has the same messages in two reads, 300 ms apart.
+// Petra handles the commands in sequence. When the list has the reply of the last command, it has the replies of all earlier commands.
+export async function settledMessages(token: string, after: number, text: string): Promise<{ seq: number }[]> {
 	let previous = "";
 	for (let i = 0; i < 50; i++) {
 		const body = (await (await call(`/v1/messages?after=${after}`, token)).json()) as { messages: { seq: number }[] };
-		const text = JSON.stringify(body.messages);
-		if (body.messages.length > 0 && text === previous) return body.messages;
-		previous = text;
+		const listed = JSON.stringify(body.messages);
+		if (listed.includes(text) && listed === previous) return body.messages;
+		previous = listed;
 		await new Promise((resolve) => setTimeout(resolve, 300));
 	}
-	throw new Error("The list of messages did not become stable.");
+	throw new Error(`The list of messages did not become stable with the text "${text}".`);
 }
 
 // Opens the stream and collects each message that it sends.
