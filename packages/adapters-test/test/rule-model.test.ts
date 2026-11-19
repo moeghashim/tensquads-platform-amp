@@ -101,3 +101,22 @@ test("K3: 'wrong then right' marks the first answer wrong and the answer after i
 	]);
 	assert.match(again.text, /^WRONG: /);
 });
+
+test("M10: for a night job request, the rule model proposes one core item for each owner message that starts with Always or Never", async () => {
+	const answer = await complete([
+		{
+			role: "user",
+			content: [
+				"Night job: propose items for the core.",
+				"[cmd/a/in] Always answer within one hour.",
+				"[cmd/b/in] Thanks, that is all.",
+				"[cmd/c/in] never open on Sunday.",
+			].join("\n"),
+		},
+	]);
+	assert.deepEqual(answer.toolCalls, []);
+	assert.deepEqual(JSON.parse(answer.text), [
+		{ text: "Always answer within one hour.", evidence: ["cmd/a/in"] },
+		{ text: "never open on Sunday.", evidence: ["cmd/c/in"] },
+	]);
+});

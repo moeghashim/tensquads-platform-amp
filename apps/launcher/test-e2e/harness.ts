@@ -22,6 +22,8 @@ export interface SeenCall {
 	pass: string;
 	status: number;
 	answer: string;
+	// The messages of a "model" call: the model request that the runner sent.
+	messages?: { role: string; content: string }[];
 }
 
 export interface ProxiedCall {

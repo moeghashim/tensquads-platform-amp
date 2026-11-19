@@ -32,6 +32,7 @@
 		"@tensquads/gate": "0.0.2",
 		"@tensquads/gateway": "0.0.2",
 		"@tensquads/loop": "0.0.2",
+		"@tensquads/memory": "0.0.2",
 		"@tensquads/petra": "0.0.2",
 		"@tensquads/trail": "0.0.2"
 	}

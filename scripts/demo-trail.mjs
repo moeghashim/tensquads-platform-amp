@@ -4,20 +4,15 @@
 // It shows the balance of credits before and after one task, and the full trail of that task.
 // The balance and the trail are read from the database with DATABASE_URL, as a developer reads them.
 // The first argument is the URL of the Worker. The default is http://localhost:8787.
-import pg from "pg";
-
-import { request, setUpAccount } from "./demo-client.mjs";
+import { connectDatabase, request, setUpAccount, sleep, waitForTaskEnd } from "./demo-client.mjs";
 
 const base = process.argv[2] ?? "http://localhost:8787";
 const at = new Date().toISOString();
 const taskId = `demo-${Date.now()}`;
 const accountId = "account-a";
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const call = (path, token, body) => request(base, path, token, body);
 
-if (!process.env.DATABASE_URL) throw new Error("The setting DATABASE_URL is missing.");
-const db = new pg.Client({ connectionString: process.env.DATABASE_URL });
-await db.connect();
+const db = await connectDatabase();
 
 // The balance is a query on the ledger. No table stores a sum (requirement T4).
 async function balance() {
@@ -40,11 +35,7 @@ await call("/v1/commands", "owner-a", {
 	channel: "chat",
 	text: "Please read 2 files.",
 });
-for (let i = 0; i < 600; i++) {
-	const { status, body } = await call(`/v1/tasks/${taskId}`, "owner-a");
-	if (status === 200 && (body.status === "done" || body.status === "failed")) break;
-	await sleep(50);
-}
+await waitForTaskEnd(call, taskId);
 
 console.log(`\n== The full trail of the task, in one query (requirement T6)`);
 const { rows } = await db.query(

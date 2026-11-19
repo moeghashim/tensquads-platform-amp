@@ -5,7 +5,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { adminCommand, type Command, type ExitReport } from "@tensquads/contracts";
 import { ports, type SandboxRequest, startSystem } from "@tensquads/core";
-import { type AdminAnswer, type PlatformObject, platformObject, platformWriter } from "@tensquads/petra";
+import { type AdminAnswer, type PlatformObject, platformObject, platformWriter, sendNightJobs } from "@tensquads/petra";
 
 import { type Env, errorResponse, platformConnections, readSettings } from "./env.js";
 import { platformPlugins } from "./plugins/platform.js";
@@ -39,6 +39,7 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export class PlatformDurableObject extends DurableObject<Env> {
 	private started: Promise<PlatformObject> | undefined;
+	private writer: ReturnType<typeof platformWriter> | undefined;
 
 	private async sendToPetra(accountId: string, command: Command): Promise<void> {
 		const petra = this.env.PETRA.get(this.env.PETRA.idFromName(accountId));
@@ -53,8 +54,9 @@ export class PlatformDurableObject extends DurableObject<Env> {
 	private start(): Promise<PlatformObject> {
 		this.started ??= (async () => {
 			const system = await startSystem(platformPlugins(platformConnections(this.env)));
+			this.writer = platformWriter(system.port(ports.database));
 			const core = platformObject({
-				writer: platformWriter(system.port(ports.database)),
+				writer: this.writer,
 				sendToPetra: (accountId, command) => this.sendToPetra(accountId, command),
 			});
 			await core.recover();
@@ -70,6 +72,7 @@ export class PlatformDurableObject extends DurableObject<Env> {
 		"/sandbox/taken": async (_request, url) => this.taken(url),
 		"/launcher/take": () => this.take(),
 		"/launcher/report": async (request) => this.report((await request.json()) as ExitReport),
+		"/night": async (request) => this.night((await request.json()) as { at: number }),
 	};
 
 	override async fetch(request: Request): Promise<Response> {
@@ -122,6 +125,20 @@ export class PlatformDurableObject extends DurableObject<Env> {
 			if (Date.now() >= deadline) return new Response(null, { status: 204 });
 			await wait(POLL_MS);
 		}
+	}
+
+	// The hourly tick of the cron trigger (section 10.1). One night job for each account and each local date.
+	private async night(tick: { at: number }): Promise<Response> {
+		await this.start();
+		const writer = this.writer;
+		if (!writer) throw new Error("The Platform object has no writer.");
+		await sendNightJobs({
+			accounts: await writer.accounts(),
+			now: tick.at,
+			storage: this.ctx.storage,
+			send: async (message) => void (await this.env.JOBS.send(message)),
+		});
+		return Response.json({ ok: true });
 	}
 
 	private async report(report: ExitReport): Promise<Response> {

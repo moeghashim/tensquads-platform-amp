@@ -1,4 +1,4 @@
-// The six tools of Petra (docs/ARCHITECTURE.md, section 4.6). The loop declares each one replay: "safe".
+// The tools of Petra (docs/ARCHITECTURE.md, section 4.6), and the two memory tools of the owner (task 08). The loop declares each one replay: "safe".
 // Each tool writes by a key from its command, and reads its decision rows first, so a second run changes nothing.
 // The input of each tool has the command id, the channel and the text of the owner message.
 import type { AccountWriter } from "./account-writer.js";
@@ -20,6 +20,8 @@ export const PETRA_TOOLS = {
 	readMemory: "read_memory",
 	taskStatus: "task_status",
 	stopTask: "stop_task",
+	rememberFact: "remember_fact",
+	promoteFact: "promote_fact",
 } as const;
 
 // In task 04, Petra starts each task for the test bot, with one task type.
@@ -31,7 +33,19 @@ export interface PetraToolsDeps {
 	work: TaskWork;
 	outbox: Outbox;
 	now: () => string;
+	// The memory (packages/memory). This package does not import it (requirement C2).
+	memory: ToolMemory;
 }
+
+// The part of the memory that the tools use. Each method answers the owner and returns the text of the answer.
+export interface ToolMemory {
+	rememberFact(fact: { commandId: string; channel: string; page: string; text: string; at: string }): Promise<string>;
+	promoteFact(promote: { commandId: string; channel: string; factId: string; at: string }): Promise<string>;
+}
+
+// The owner writes a fact as "remember on <page>: <text>", and promotes a fact as "promote fact <id>".
+const REMEMBER = /^remember on ([^:]+):\s*(\S[\s\S]*)$/i;
+const PROMOTE = /\bpromote fact (\S+)/i;
 
 interface ToolInput {
 	commandId: string;
@@ -144,6 +158,29 @@ export function petraTools(deps: PetraToolsDeps): PetraToolDefinition[] {
 		return text;
 	}
 
+	// The system sets the origin "owner" of the fact. The answer has the id of the fact (requirement M2).
+	async function rememberFact(input: ToolInput): Promise<string> {
+		const match = REMEMBER.exec(input.text.trim());
+		if (!match) {
+			const text = "Write the fact as: remember on <page>: <text>.";
+			await reply(input, text);
+			return text;
+		}
+		const [, page = "", text = ""] = match;
+		return deps.memory.rememberFact({ ...input, page: page.trim(), text: text.trim(), at: deps.now() });
+	}
+
+	// Only the owner promotes a fact to the core (requirement M3).
+	async function promoteFact(input: ToolInput): Promise<string> {
+		const factId = PROMOTE.exec(input.text)?.[1];
+		if (!factId) {
+			const text = "Write the promote as: promote fact <id>.";
+			await reply(input, text);
+			return text;
+		}
+		return deps.memory.promoteFact({ commandId: input.commandId, channel: input.channel, factId, at: deps.now() });
+	}
+
 	const tool = (name: string, description: string, run: (input: ToolInput) => Promise<string>) => ({
 		name,
 		description,
@@ -178,5 +215,7 @@ export function petraTools(deps: PetraToolsDeps): PetraToolDefinition[] {
 		},
 		tool(PETRA_TOOLS.taskStatus, "Tell the status of a task.", taskStatus),
 		tool(PETRA_TOOLS.stopTask, "Stop a task of the owner.", stopTask),
+		tool(PETRA_TOOLS.rememberFact, "Keep a fact of the owner on a page of the memory.", rememberFact),
+		tool(PETRA_TOOLS.promoteFact, "Put a fact into the core of the memory.", promoteFact),
 	];
 }

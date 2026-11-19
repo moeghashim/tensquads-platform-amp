@@ -40,6 +40,20 @@ export interface TaskWorkDeps {
 	actions: ActionWriter;
 	// The "check action" job of the gate (packages/gate). This package does not import the gate (requirement C2).
 	checkAction: (commandId: string, actionId: string) => Promise<void>;
+	// The memory (packages/memory). This package does not import it (requirement C2).
+	memory: TaskMemory;
+}
+
+// The part of the memory that the task work uses (docs/ARCHITECTURE.md, section 4.5).
+export interface TaskMemory {
+	// The facts of a brief, each with the id of its row.
+	briefFacts(bot: string, goal: string): Promise<Brief["facts"]>;
+	// The proposed facts and the notes of a result that stands. The memory sets their origin (requirement M2).
+	addResult(
+		task: { taskId: string; attemptNo: number; bot: string; customerRef: string | null },
+		result: TaskResult,
+		at: string,
+	): Promise<void>;
 }
 
 // The cause of a cancel: the owner, or a deletion that is due (section 7.7).
@@ -66,6 +80,8 @@ export interface NewTask {
 	taskType: string;
 	goal: string;
 	replyTo: string;
+	// The command id of the external event that caused the task. The task gets its customer reference (section 7.8).
+	fromEvent?: string;
 }
 
 export type StartOutcome = "started" | "no credits" | "ended";
@@ -113,13 +129,13 @@ interface AttemptCheck {
 	next: () => Promise<void>;
 }
 
-// The brief has six parts (requirement L1). The memory adds facts in a later task.
-function briefOf(task: NewTask): Brief {
+// The brief has six parts (requirement L1). The facts come from the memory.
+function briefOf(task: NewTask, facts: Brief["facts"]): Brief {
 	const { limits } = taskTypeOf(task.bot, task.taskType);
 	return {
 		goal: task.goal,
 		done: "The owner has the answer.",
-		facts: [],
+		facts,
 		limits,
 		notInTask: ["Actions that send something out."],
 		replyTo: task.replyTo,
@@ -342,7 +358,8 @@ export function taskWork(deps: TaskWorkDeps): TaskWork {
 			// Step 1: the task row. A second run finds it. With too few credits, no task starts (requirement T1).
 			if (!(await tasks.task(newTask.commandId))) {
 				if (!(await deps.credits.sufficient(newTask.bot, newTask.taskType))) return "no credits";
-				await tasks.createTask({ ...newTask, brief: briefOf(newTask), at });
+				const facts = await deps.memory.briefFacts(newTask.bot, newTask.goal);
+				await tasks.createTask({ ...newTask, brief: briefOf(newTask, facts), at });
 			}
 			const task = await openTask(newTask.commandId);
 			if (!task) return "ended";
@@ -470,6 +487,12 @@ export function taskWork(deps: TaskWorkDeps): TaskWork {
 			const at = deps.now();
 			const { taskId, attemptNo } = claims;
 			if (result.stop === "success") {
+				// Only a result that passed the check adds facts and notes. Another stop had no check (requirement K1).
+				await deps.memory.addResult(
+					{ taskId, attemptNo, bot: task.bot, customerRef: task.customerRef },
+					result,
+					at,
+				);
 				await tasks.endAttempt({ taskId, attemptNo, exit: "result", at });
 				await outbox.tell({
 					sourceRef: `task/${taskId}/result`,

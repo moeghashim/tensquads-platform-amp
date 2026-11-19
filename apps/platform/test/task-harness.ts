@@ -1,17 +1,26 @@
 // The parts of Petra for the Node tests of task 04, against a real Postgres.
 // The sandbox list, the queue, the object store and the storage of the Durable Object are fakes in memory.
 // The credits and the trail are the real packages, joined as the Durable Object joins them.
+import { ruleModel } from "@tensquads/adapters-test";
 import type { OwnerMessage, PassClaims } from "@tensquads/contracts";
-import type { Database, SandboxRequest } from "@tensquads/core";
+import { type Database, ports, type SandboxRequest, startSystem } from "@tensquads/core";
 import { credits } from "@tensquads/credits";
-import { type Gateway, type GatewayGate, gateway, signPass } from "@tensquads/gateway";
+import { type Gateway, type GatewayGate, gateway, type ResultChecker, signPass } from "@tensquads/gateway";
+import { cleanedFact, type Memory, memory as makeMemory } from "@tensquads/memory";
 import {
 	type ActionWriter,
 	accountWriter,
 	actionWriter,
+	type Conversation,
 	type JobMessage,
+	memoryWriter,
+	type NightJob,
+	nightJob,
+	nightWriter,
 	outbox,
+	type Petra,
 	type PetraStorage,
+	petra,
 	petraTools,
 	platformWriter,
 	type TaskWork,
@@ -63,6 +72,8 @@ export interface BuildOptions {
 	afterSandbox?: () => void;
 	// The "check action" job of the gate. The default does nothing.
 	checkAction?: (commandId: string, actionId: string) => Promise<void>;
+	// The conversation of Petra. The default has none.
+	conversation?: Conversation;
 }
 
 export interface Harness {
@@ -86,17 +97,22 @@ export interface Harness {
 		work: TaskWork;
 		out: ReturnType<typeof outbox>;
 		tools: ReturnType<typeof petraTools>;
+		memory: Memory;
+		// Petra with the rule model and the night job, as the Durable Object joins them (section 10.1).
+		core: Petra;
+		night: NightJob;
 	};
 	claims(taskId: string, attemptNo: number): PassClaims;
 }
 
-export async function harness(prefix: string, initialCredits = HARNESS_CREDITS): Promise<Harness> {
+export async function harness(prefix: string, initialCredits = HARNESS_CREDITS, timeZone = "UTC"): Promise<Harness> {
 	const database = testDatabase();
 	const accountId = uniqueId(prefix);
+	const model = (await startSystem([ruleModel()])).port(ports.model);
 	await platformWriter(database).addAccount({
 		id: accountId,
 		name: prefix,
-		timeZone: "UTC",
+		timeZone,
 		language: "en",
 		modelProfile: "test",
 		at: AT,
@@ -136,6 +152,12 @@ export async function harness(prefix: string, initialCredits = HARNESS_CREDITS):
 			const usedTasks = options.tasks ?? tasks;
 			const send = (message: OwnerMessage) => void sent.push(message);
 			const out = outbox({ writer, storage: store, now: clock, send, addTrail: usedTasks.addTrail });
+			const memory = makeMemory({
+				store: memoryWriter(database, accountId),
+				tasks: usedTasks,
+				tell: out.tell,
+				model,
+			});
 			const work = taskWork({
 				accountId,
 				tasks: usedTasks,
@@ -164,9 +186,32 @@ export async function harness(prefix: string, initialCredits = HARNESS_CREDITS):
 				now: clock,
 				actions: actionWriter(database, accountId),
 				checkAction: options.checkAction ?? (async () => undefined),
+				memory,
 			});
-			const tools = petraTools({ writer, tasks: usedTasks, work, outbox: out, now: clock });
-			return { work, out, tools };
+			const tools = petraTools({ writer, tasks: usedTasks, work, outbox: out, now: clock, memory });
+			const night = nightJob({
+				writer: nightWriter(database, accountId),
+				memory,
+				cancel: work.cancel,
+				objectStore: objects,
+				storage: store,
+				clean: cleanedFact,
+				trail: book.night,
+				now: clock,
+			});
+			const core = petra({
+				writer,
+				storage: store,
+				model,
+				now: clock,
+				send,
+				outbox: out,
+				work,
+				memory,
+				nightJob: night.run,
+				...(options.conversation ? { conversation: options.conversation } : {}),
+			});
+			return { work, out, tools, memory, core, night };
 		},
 		claims: (taskId, attemptNo) => ({
 			accountId,
@@ -178,9 +223,9 @@ export async function harness(prefix: string, initialCredits = HARNESS_CREDITS):
 	};
 }
 
-// The gateway of the harness. The model always answers "ok", and the check always says "stands".
+// The gateway of the harness. The model always answers "ok", and the default check always says "stands".
 // A result that stands goes to the task work. The default gate refuses each action.
-export function harnessGateway(h: Harness, work: TaskWork, gate?: GatewayGate): Gateway {
+export function harnessGateway(h: Harness, work: TaskWork, gate?: GatewayGate, check?: ResultChecker): Gateway {
 	return gateway({
 		accountId: h.accountId,
 		tasks: h.tasks,
@@ -196,7 +241,7 @@ export function harnessGateway(h: Harness, work: TaskWork, gate?: GatewayGate): 
 				usage: { inputTokens: 1, outputTokens: 1 },
 			}),
 		},
-		check: async () => ({ verdict: "stands", reason: "The double always says stands." }),
+		check: check ?? (async () => ({ verdict: "stands", reason: "The double always says stands." })),
 		storage: memoryStorage(),
 		now: h.now,
 		workerCommit: "worker-abc",

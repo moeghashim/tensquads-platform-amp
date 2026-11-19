@@ -3,7 +3,8 @@
 import { testBot } from "@tensquads/bots";
 import type { Brief, TaskResult } from "@tensquads/contracts";
 
-export type CodeTest = (input: { brief: Brief; result: TaskResult }) => string | undefined;
+// The forget list has the ids of the facts that the owner forgot during the task (decision D11).
+export type CodeTest = (input: { brief: Brief; result: TaskResult; forget: readonly string[] }) => string | undefined;
 
 // Each line of "done" that starts with "- " names one part that the result must have.
 const PART = /^- (.+)$/gm;
@@ -32,7 +33,18 @@ export const namesOnlyKnownFacts: CodeTest = ({ brief, result }) => {
 		: `The result names the fact ${unknown.map((id) => `"${id}"`).join(", ")}, which is not in the brief.`;
 };
 
+// The result must not use a fact on the forget list of the task (ARCHITECTURE section 4.5, requirement M9).
+export const usesNoForgottenFact: CodeTest = ({ brief, result, forget }) => {
+	const texts = [result.answer, ...result.evidence];
+	const used = brief.facts.filter(
+		(fact) => forget.includes(fact.id) && fact.text !== "" && texts.some((text) => text.includes(fact.text)),
+	);
+	return used.length === 0
+		? undefined
+		: `The result uses the forgotten fact ${used.map((fact) => `"${fact.id}"`).join(", ")}.`;
+};
+
 // The tests by code of each bot, by the id of the bot.
 export const CODE_TESTS: Readonly<Record<string, readonly CodeTest[]>> = {
-	[testBot.id]: [hasEachPart, namesOnlyKnownFacts],
+	[testBot.id]: [usesNoForgottenFact, hasEachPart, namesOnlyKnownFacts],
 };

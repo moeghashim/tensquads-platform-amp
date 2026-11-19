@@ -24,6 +24,8 @@ export interface TaskRow {
 	brief: Brief;
 	status: TaskStatus;
 	stop: StopName | null;
+	// The customer of a task that came from an external event, or null (section 7.8).
+	customerRef: string | null;
 }
 
 export interface AttemptRow {
@@ -62,7 +64,15 @@ export type NewInboxRow = { taskId: string; sourceRef: string; at: string } & (
 
 export interface TaskWriter extends TrailWriter {
 	// Step 1 of "start a task". The id of the task is the command id. Returns the task id.
-	createTask(task: { commandId: string; bot: string; taskType: string; brief: Brief; at: string }): Promise<string>;
+	// A task from an external event gets the customer reference of the event (section 7.8).
+	createTask(task: {
+		commandId: string;
+		bot: string;
+		taskType: string;
+		brief: Brief;
+		at: string;
+		fromEvent?: string;
+	}): Promise<string>;
 	// Step 2. The ledger row has the key "task/{taskId}/charge".
 	chargeTask(charge: { taskId: string; credits: number; at: string }): Promise<void>;
 	// Adds the attempt with the next number. A cause that comes again gets the number of its first attempt.
@@ -149,13 +159,14 @@ interface TaskDbRow {
 	brief: Brief;
 	status: TaskStatus;
 	stop: StopName | null;
+	customer_ref: string | null;
 }
 
-const TASK_COLUMNS = "id, command_id, bot, task_type, brief, status, stop";
+const TASK_COLUMNS = "id, command_id, bot, task_type, brief, status, stop, customer_ref";
 
 function toTaskRow(row: TaskDbRow): TaskRow {
-	const { command_id: commandId, task_type: taskType, ...rest } = row;
-	return { ...rest, commandId, taskType };
+	const { command_id: commandId, task_type: taskType, customer_ref: customerRef, ...rest } = row;
+	return { ...rest, commandId, taskType, customerRef };
 }
 
 // The prefix of the key of an answer of the owner. The rest of the key is the id of the question.
@@ -179,9 +190,18 @@ export function taskWriter(database: Database, accountId: string): TaskWriter & 
 		createTask: (task) =>
 			run(async (tx) => {
 				await tx.query(
-					`INSERT INTO tasks (id, account_id, command_id, bot, task_type, brief, status, created_at)
-					 VALUES ($1, $2, $1, $3, $4, $5, 'starting', $6) ON CONFLICT DO NOTHING`,
-					[task.commandId, accountId, task.bot, task.taskType, JSON.stringify(task.brief), task.at],
+					`INSERT INTO tasks (id, account_id, command_id, bot, task_type, brief, status, created_at, customer_ref)
+					 VALUES ($1, $2, $1, $3, $4, $5, 'starting', $6,
+					 (SELECT customer_ref FROM events WHERE command_id = $7::text)) ON CONFLICT DO NOTHING`,
+					[
+						task.commandId,
+						accountId,
+						task.bot,
+						task.taskType,
+						JSON.stringify(task.brief),
+						task.at,
+						task.fromEvent ?? null,
+					],
 				);
 				return task.commandId;
 			}),

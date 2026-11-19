@@ -151,7 +151,7 @@ test("K2: a second adapter replaces the row of the checker model, and the row of
 	});
 	const system = await startSystem(list);
 	const check = checker(system.port(ports.checkerModel));
-	const input = { taskId: "t", bot: testBot.id, brief };
+	const input = { taskId: "t", bot: testBot.id, brief, forget: [] };
 	assert.deepEqual(await check({ ...input, result: result("Open at 9.") }), {
 		verdict: "continue",
 		reason: "Checker model: The result does not name the shop.",
