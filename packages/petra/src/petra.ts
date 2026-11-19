@@ -25,6 +25,8 @@ export interface PetraDeps {
 	conversation?: Conversation;
 	// The work on tasks and attempts. Without it, the task commands only get the status "done".
 	work?: TaskWork;
+	// The night job of the account. In this task, it deletes the old trails (requirement T8).
+	nightJob?: () => Promise<void>;
 }
 
 const WORK_KEY = "petra_work";
@@ -66,9 +68,11 @@ export interface Petra {
 	recover(): Promise<void>;
 }
 
-// The check jobs of the "jobs" queue. The night job comes in a later task.
-async function runJob(work: TaskWork, command: Extract<Command, { type: "RunJob" }>): Promise<void> {
-	if (!command.targetId) return;
+// The check jobs of the "jobs" queue. The night job has no target.
+async function runJob(deps: PetraDeps, command: Extract<Command, { type: "RunJob" }>): Promise<void> {
+	if (command.job === "night") return deps.nightJob?.();
+	const { work } = deps;
+	if (!work || !command.targetId) return;
 	if (command.job === "check task") await work.checkTask(command.commandId, command.targetId);
 	if (command.job === "check action") await work.checkAction(command.commandId, command.targetId);
 }
@@ -100,14 +104,14 @@ export function petra(deps: PetraDeps): Petra {
 	}
 
 	async function handleTask(command: Command): Promise<void> {
+		if (command.type === "RunJob") return runJob(deps, command);
 		if (!work) return;
-		if (command.type === "CancelTask") await work.cancel(command.taskId);
+		if (command.type === "CancelTask") await work.cancel(command.taskId, "owner");
 		else if (command.type === "SandboxExited") await work.sandboxExited(command);
 		else if (command.type === "OwnerAnswer") await work.ownerAnswer(command);
 		else if (command.type === "ResendSandboxRequests") await work.resendRequests();
 		else if (command.type === "SetRule") await work.setRule(command);
 		else if (command.type === "ApprovalDecision") await work.approvalDecision(command);
-		else if (command.type === "RunJob") await runJob(work, command);
 	}
 
 	async function handle(command: Command): Promise<void> {

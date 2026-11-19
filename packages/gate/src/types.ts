@@ -111,6 +111,8 @@ export interface GateDeps {
 export interface ActionRequest {
 	taskId: string;
 	attemptNo: number;
+	// The number of the gateway call "action".
+	callNo: number;
 	bot: string;
 	toolCallId: string;
 	tool: string;

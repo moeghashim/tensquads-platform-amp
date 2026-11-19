@@ -124,7 +124,7 @@ export function petraTools(deps: PetraToolsDeps): PetraToolDefinition[] {
 			});
 			return "I asked the owner which task to stop.";
 		}
-		await work.cancel(choice);
+		await work.cancel(choice, "owner");
 		return `The task ${choice} is cancelled.`;
 	}
 

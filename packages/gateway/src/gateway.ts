@@ -59,6 +59,8 @@ export interface GatewayGate {
 	action(request: {
 		taskId: string;
 		attemptNo: number;
+		// The number of the gateway call. The trail row of a refusal has it in its key (section 7.1).
+		callNo: number;
 		bot: string;
 		toolCallId: string;
 		tool: string;
@@ -162,6 +164,10 @@ function botVersion(task: OpenTask): string {
 	return bot.version;
 }
 
+// The source reference of a trail row from one gateway call (section 7.1). The kind has hyphens for spaces.
+const trailRef = (claims: PassClaims, callNo: number, kind: string): string =>
+	`task/${claims.taskId}/${claims.attemptNo}/${callNo}/${kind.replaceAll(" ", "-")}`;
+
 export function gateway(deps: GatewayDeps): Gateway {
 	const { tasks } = deps;
 	// The marks "in progress" are in memory only. They go away if Petra stops (section 3.5).
@@ -244,7 +250,7 @@ export function gateway(deps: GatewayDeps): Gateway {
 
 	async function model(task: OpenTask, claims: PassClaims, call: Extract<GatewayCall, { call: "model" }>) {
 		const { taskId, attemptNo } = claims;
-		const sourceRef = `gw/${taskId}/${attemptNo}/${call.callNo}`;
+		const sourceRef = trailRef(claims, call.callNo, "model call");
 		// Petra stopped after the trail row and before she saved the answer. The row has the answer.
 		const earlier = await tasks.trailRow(sourceRef);
 		if (earlier) return (earlier.data as { answer: ModelAnswer }).answer;
@@ -276,7 +282,7 @@ export function gateway(deps: GatewayDeps): Gateway {
 				: { verdict: "stands", reason: `A result with the stop ${call.result.stop} has no check.` };
 		const at = deps.now();
 		await tasks.addTrail({
-			sourceRef: `gw/${taskId}/${attemptNo}/${call.callNo}`,
+			sourceRef: trailRef(claims, call.callNo, "check"),
 			taskId,
 			attemptNo,
 			turnNo: null,
@@ -299,7 +305,7 @@ export function gateway(deps: GatewayDeps): Gateway {
 				return model(task, claims, call);
 			case "step":
 				await tasks.addTrail({
-					sourceRef: `gw/${taskId}/${attemptNo}/${call.callNo}`,
+					sourceRef: trailRef(claims, call.callNo, "tool use"),
 					taskId,
 					attemptNo,
 					turnNo: call.turnNo,
@@ -323,8 +329,8 @@ export function gateway(deps: GatewayDeps): Gateway {
 			case "result":
 				return result(task, claims, call);
 			case "action": {
-				const { toolCallId, tool, content } = call;
-				return deps.gate.action({ taskId, attemptNo, bot: task.bot, toolCallId, tool, content });
+				const { callNo, toolCallId, tool, content } = call;
+				return deps.gate.action({ taskId, attemptNo, callNo, bot: task.bot, toolCallId, tool, content });
 			}
 			case "draft":
 				return draft(claims, call);

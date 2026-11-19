@@ -202,7 +202,7 @@ test("L15: the owner writes stop with one open task, and the task is cancelled w
 		rows.ledger.map((row) => [row.source_ref, Number(row.credits)]),
 		[
 			[`task/${u(h, "t1")}/charge`, -1],
-			[`task/${u(h, "t1")}/give back`, 1],
+			[`task/${u(h, "t1")}/giveback`, 1],
 		],
 	);
 	assert.equal(rows.attempts[0]?.exit, "cancelled");
@@ -232,7 +232,7 @@ test("L15: a CancelTask command and the tool stop a task give the same rows, and
 		await runTool(tools, PETRA_TOOLS.startTask, { commandId: u(h, "t1"), text: "Answer." });
 		await startRunner(h, u(h, "t1"), 1);
 		if (byTool) await runTool(tools, PETRA_TOOLS.stopTask, { commandId: u(h, "s1"), text: `stop ${u(h, "t1")}` });
-		else await work.cancel(u(h, "t1"));
+		else await work.cancel(u(h, "t1"), "owner");
 		const rows = await taskRows(h.database, h.accountId);
 		const ledger = rows.ledger.map((row) => [row.source_ref, Number(row.credits)]);
 		// The ids differ by account. The test compares the rows with the account id taken out.

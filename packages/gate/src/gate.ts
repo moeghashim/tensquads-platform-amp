@@ -178,7 +178,7 @@ export function gate(deps: GateDeps): Gate {
 	// The same id with a different hash is refused, with a trail row (requirement G8).
 	async function refuseChanged(row: ActionRow, request: ActionRequest, hash: string): Promise<ActionAnswer> {
 		await tasks.addTrail({
-			sourceRef: `action/${idOf(row)}/changed/${hash}`,
+			sourceRef: `task/${row.taskId}/${request.attemptNo}/${request.callNo}/refusal`,
 			taskId: row.taskId,
 			attemptNo: request.attemptNo,
 			turnNo: null,

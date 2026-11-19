@@ -5,6 +5,7 @@ import { DurableObject } from "cloudflare:workers";
 import { checker } from "@tensquads/checker";
 import { command as commandSchema, type GatewayCall, type OwnerMessage, type PassClaims } from "@tensquads/contracts";
 import { ports, startSystem } from "@tensquads/core";
+import { credits } from "@tensquads/credits";
 import { gate } from "@tensquads/gate";
 import { type Gateway, gateway, signPass } from "@tensquads/gateway";
 import { openPetraLoop, type PetraLoop } from "@tensquads/loop";
@@ -18,6 +19,7 @@ import {
 	taskWork,
 	taskWriter,
 } from "@tensquads/petra";
+import { trail } from "@tensquads/trail";
 
 import { type Env, errorResponse, petraConnections, readSettings } from "./env.js";
 import { PLATFORM_NAME } from "./platform-object.js";
@@ -79,11 +81,15 @@ export class PetraObject extends DurableObject<Env> {
 			const system = await startSystem(petraPlugins(petraConnections(this.env), bindings));
 			const database = system.port(ports.database);
 			const writer = accountWriter(database, accountId);
-			const tasks = taskWriter(database, accountId);
+			const objectStore = system.port(ports.objectStore);
+			// Each trail row goes through the trail package: a large item goes to R2 (requirements T5 and T7).
+			const rawTasks = taskWriter(database, accountId);
+			const book = trail({ store: rawTasks, objectStore });
+			const tasks: Tasks = { ...rawTasks, addTrail: book.add, trailRow: book.row };
 			const storage = this.ctx.storage;
 			const now = () => new Date().toISOString();
 			const send = (message: OwnerMessage) => this.send(message);
-			const out = outbox({ writer, storage, now, send });
+			const out = outbox({ writer, storage, now, send, addTrail: tasks.addTrail });
 			const actions = actionWriter(database, accountId);
 			const queue = system.port(ports.queue);
 			// The gate calls the payment and the channel. A runner has no path to them (requirement G1).
@@ -107,8 +113,9 @@ export class PetraObject extends DurableObject<Env> {
 				queue,
 				signPass: (claims) => signPass(claims, settings.passKey),
 				takenAt: (taskId, attemptNo) => this.takenAt(accountId, taskId, attemptNo),
-				// The credits double of task 04 always says "sufficient" (task 07 replaces it).
-				creditsSufficient: async () => true,
+				credits: credits({
+					store: { balance: writer.balance, chargeTask: tasks.chargeTask, giveBack: tasks.giveBack },
+				}),
 				settings,
 				now,
 				actions,
@@ -122,13 +129,15 @@ export class PetraObject extends DurableObject<Env> {
 				complete: ({ messages }) => model.complete({ messages, tools: tools.map((tool) => tool.name) }),
 				wakeChanged: (at) => void this.arm(at),
 			});
-			const core = petra({ writer, storage, model, now, send, outbox: out, conversation: loop, work });
+			// The night job deletes the old trails (requirement T8). Task 08 gives it its schedule.
+			const nightJob = async () => void (await book.night());
+			const core = petra({ writer, storage, model, now, send, outbox: out, conversation: loop, work, nightJob });
 			const gw = gateway({
 				accountId,
 				tasks,
 				actions,
 				gate: actionGate,
-				objectStore: system.port(ports.objectStore),
+				objectStore,
 				model,
 				check: checker(system.port(ports.checkerModel)),
 				storage,

@@ -46,7 +46,8 @@
 		"dev:platform": "node scripts/dev.mjs",
 		"demo:platform": "node scripts/demo-platform.mjs",
 		"demo:loop": "node scripts/demo-loop.mjs",
-		"demo:gate": "node scripts/demo-gate.mjs"
+		"demo:gate": "node scripts/demo-gate.mjs",
+		"demo:trail": "node scripts/demo-trail.mjs"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.6.6",

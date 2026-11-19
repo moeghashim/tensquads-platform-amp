@@ -3,6 +3,7 @@
 import type { OwnerMessage } from "@tensquads/contracts";
 
 import type { AccountReader, AccountWriter, NewMessage } from "./account-writer.js";
+import type { TrailWriter } from "./trail-writer.js";
 
 // The storage of the Durable Object. The keys of Petra start with "petra_" (section 7.3).
 export interface PetraStorage {
@@ -25,6 +26,8 @@ export interface OutboxDeps {
 	now: () => string;
 	// Sends a message on the open streams. The outbox calls it only after the message is in the database.
 	send: (message: OwnerMessage) => void;
+	// Adds the trail row of a message about a task (requirement T6). Without it, the outbox adds no trail row.
+	addTrail?: TrailWriter["addTrail"];
 }
 
 export interface Outbox {
@@ -62,7 +65,22 @@ export function outbox(deps: OutboxDeps): Outbox {
 		async tell({ sourceRef, channel, body, taskId }) {
 			const at = deps.now();
 			const out = { direction: "out", sender: "petra", type: body.type, body, at } as const;
-			if (!(await write({ sourceRef, channel, ...out, ...(taskId ? { taskId } : {}) }))) return;
+			const wrote = await write({ sourceRef, channel, ...out, ...(taskId ? { taskId } : {}) });
+			// The trail row has its own key, so a second run adds it when the first run stopped before it.
+			if (taskId && deps.addTrail) {
+				await deps.addTrail({
+					sourceRef: `${sourceRef}/trail`,
+					taskId,
+					attemptNo: null,
+					turnNo: null,
+					kind: "message to the owner",
+					actor: "petra",
+					summary: `Petra sent a message of the type ${body.type} to the owner.`,
+					data: body,
+					at,
+				});
+			}
+			if (!wrote) return;
 			const seq = await writer.messageSeq(sourceRef);
 			if (seq === undefined) return;
 			const [stored] = await writer.ownerMessagesAfter(seq - 1);
