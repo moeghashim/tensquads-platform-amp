@@ -3,9 +3,18 @@
 // (section 3.6) in its own storage. The list is not the record: the record of an attempt is its row in attempts.
 
 import { DurableObject } from "cloudflare:workers";
-import { adminCommand, type Command, type ExitReport } from "@tensquads/contracts";
+import { type AdminView, adminCommand, type Command, type ExitReport } from "@tensquads/contracts";
 import { ports, type SandboxRequest, startSystem } from "@tensquads/core";
-import { type AdminAnswer, type PlatformObject, platformObject, platformWriter, sendNightJobs } from "@tensquads/petra";
+import { divide } from "@tensquads/costs";
+import {
+	type AdminAnswer,
+	type OperationsRow,
+	operationsRows,
+	type PlatformObject,
+	platformObject,
+	platformWriter,
+	sendNightJobs,
+} from "@tensquads/petra";
 
 import { type Env, errorResponse, platformConnections, readSettings } from "./env.js";
 import { platformPlugins } from "./plugins/platform.js";
@@ -58,6 +67,7 @@ export class PlatformDurableObject extends DurableObject<Env> {
 			const core = platformObject({
 				writer: this.writer,
 				sendToPetra: (accountId, command) => this.sendToPetra(accountId, command),
+				divide,
 			});
 			await core.recover();
 			return core;
@@ -77,8 +87,29 @@ export class PlatformDurableObject extends DurableObject<Env> {
 
 	override async fetch(request: Request): Promise<Response> {
 		const url = new URL(request.url);
+		if (url.pathname.startsWith("/views/")) return this.view(url.pathname.slice("/views/".length) as AdminView);
 		const route = this.routes[url.pathname];
 		return route ? route(request, url) : errorResponse(404, "not_found", "This call does not exist.");
+	}
+
+	// One view of the schema admin (section 7.6). The Worker checked the name. The operations view gets the stuck
+	// tasks and the requests for a sandbox that no launcher took in the take time.
+	private async view(name: AdminView): Promise<Response> {
+		await this.start();
+		const writer = this.writer;
+		if (!writer) throw new Error("The Platform object has no writer.");
+		const settings = readSettings(this.env);
+		const rows = await writer.adminView(name, settings.creditValueMicros);
+		if (name !== "operations") return Response.json({ view: name, rows });
+		const entries = [...(await this.ctx.storage.list<ListEntry>({ prefix: LIST_PREFIX })).values()];
+		const requests = entries.map((entry) => ({
+			...entry.request,
+			putAt: entry.putAt,
+			...(entry.takenAt === undefined ? {} : { takenAt: entry.takenAt }),
+		}));
+		const limits = { attemptMaxMs: settings.attemptMaxMs, takeTimeMs: settings.takeTimeMs };
+		const all = operationsRows(rows as unknown as OperationsRow[], requests, Date.now(), limits);
+		return Response.json({ view: name, rows: all });
 	}
 
 	private async admin(request: Request): Promise<Response> {

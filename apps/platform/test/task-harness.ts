@@ -3,7 +3,8 @@
 // The credits and the trail are the real packages, joined as the Durable Object joins them.
 import { fixedDecider, ruleModel } from "@tensquads/adapters-test";
 import type { OwnerMessage, PassClaims } from "@tensquads/contracts";
-import { type Database, type Decider, ports, type SandboxRequest, startSystem } from "@tensquads/core";
+import { type Database, type Decider, type Model, ports, type SandboxRequest, startSystem } from "@tensquads/core";
+import { type Costs, costs as makeCosts } from "@tensquads/costs";
 import { credits } from "@tensquads/credits";
 import { type Decisions, decisions } from "@tensquads/decisions";
 import { type Gateway, type GatewayGate, gateway, type ResultChecker, signPass } from "@tensquads/gateway";
@@ -13,6 +14,7 @@ import {
 	accountWriter,
 	actionWriter,
 	type Conversation,
+	costWriter,
 	decisionWriter,
 	type JobMessage,
 	memoryWriter,
@@ -89,6 +91,8 @@ export interface Harness {
 	accountId: string;
 	writer: ReturnType<typeof accountWriter>;
 	tasks: Tasks;
+	// The costs package on the cost writer, as the Durable Object joins them (task 10).
+	costs: Costs;
 	// The trail package with the task writer and the object store of the harness.
 	trail: ReturnType<typeof trailOf>;
 	objects: ReturnType<typeof memoryObjects>;
@@ -142,10 +146,12 @@ export async function harness(prefix: string, initialCredits = HARNESS_CREDITS, 
 	const taken = new Map<string, number>();
 	let now = AT;
 	const clock = () => now;
+	const costBook = makeCosts({ store: costWriter(database, accountId), now: clock });
 	return {
 		database,
 		accountId,
 		writer,
+		costs: costBook,
 		tasks,
 		trail: book,
 		objects,
@@ -176,6 +182,7 @@ export async function harness(prefix: string, initialCredits = HARNESS_CREDITS, 
 				shadow: options.shadow ?? null,
 				timeoutMs: options.timeoutMs ?? 5000,
 				now: clock,
+				costs: costBook,
 			});
 			const work = taskWork({
 				accountId,
@@ -237,6 +244,7 @@ export async function harness(prefix: string, initialCredits = HARNESS_CREDITS, 
 				work,
 				memory,
 				nightJob: night.run,
+				costs: costBook,
 				...(options.conversation ? { conversation: options.conversation } : {}),
 			});
 			return { work, out, tools, memory, core, night, decide };
@@ -251,25 +259,37 @@ export async function harness(prefix: string, initialCredits = HARNESS_CREDITS, 
 	};
 }
 
-// The gateway of the harness. The model always answers "ok", and the default check always says "stands".
+// The gateway of the harness. The default model always answers "ok", and the default check always says "stands".
 // A result that stands goes to the task work. The default gate refuses each action.
-export function harnessGateway(h: Harness, work: TaskWork, gate?: GatewayGate, check?: ResultChecker): Gateway {
+export function harnessGateway(
+	h: Harness,
+	work: TaskWork,
+	gate?: GatewayGate,
+	check?: ResultChecker,
+	model?: Model,
+): Gateway {
+	let calls = 0;
 	return gateway({
 		accountId: h.accountId,
 		tasks: h.tasks,
 		actions: h.actions,
 		gate: gate ?? { action: async () => ({ status: "refused", reason: "This test has no gate." }) },
 		objectStore: h.objects,
-		model: {
-			complete: async () => ({
-				text: "ok",
-				toolCalls: [],
-				provider: "test",
-				model: "scripted",
-				usage: { inputTokens: 1, outputTokens: 1 },
-			}),
+		model: model ?? {
+			complete: async () => {
+				calls += 1;
+				return {
+					text: "ok",
+					toolCalls: [],
+					requestId: `ok-${calls}`,
+					provider: "test",
+					model: "scripted",
+					usage: { inputTokens: 1, outputTokens: 1 },
+				};
+			},
 		},
 		check: check ?? (async () => ({ verdict: "stands", reason: "The double always says stands." })),
+		costs: h.costs,
 		storage: memoryStorage(),
 		now: h.now,
 		workerCommit: "worker-abc",
@@ -309,4 +329,59 @@ export async function taskRows(database: Database, accountId: string) {
 export async function startRunner(h: Harness, taskId: string, attemptNo: number): Promise<void> {
 	await h.tasks.bindRunner({ taskId, attemptNo, runnerId: `runner-${attemptNo}`, at: h.now() });
 	await h.tasks.setTaskStatus({ taskId, status: "running", at: h.now() });
+}
+
+export interface CostDbRow {
+	source_ref: string;
+	task_id: string | null;
+	attempt_no: number | null;
+	kind: string;
+	provider: string;
+	model: string;
+	units: string;
+	unit: string;
+	unit_price: string;
+	amount: string;
+	divided: boolean;
+}
+
+// The cost rows of the account, in the sequence of their keys.
+export async function costRows(database: Database, accountId: string): Promise<CostDbRow[]> {
+	return database.transaction({ role: "petra", accountId }, (tx) =>
+		tx.query<CostDbRow>(
+			`SELECT source_ref, task_id, attempt_no, kind, provider, model, units, unit, unit_price, amount, divided
+			 FROM costs ORDER BY source_ref`,
+		),
+	);
+}
+
+// A model with its own provider, so the prices of this test do not touch another test.
+export function pricedModel(provider: string, inputTokens = 1000): Model & { calls: () => number } {
+	let calls = 0;
+	return {
+		calls: () => calls,
+		complete: async () => {
+			calls += 1;
+			return {
+				text: "ok",
+				toolCalls: [],
+				requestId: `${provider}-${calls}`,
+				provider,
+				model: "m",
+				usage: { inputTokens, outputTokens: 10 },
+			};
+		},
+	};
+}
+
+// Adds the prices of the input and of the output of the model "m", with the admin command SetUnitPrice.
+export async function setPrices(
+	h: Harness,
+	provider: string,
+	prices: { input: number; output: number },
+	startsAt: string,
+) {
+	const writer = platformWriter(h.database);
+	await writer.addUnitPrice({ provider, model: "m", unit: "1M input tokens", price: prices.input, startsAt });
+	await writer.addUnitPrice({ provider, model: "m", unit: "1M output tokens", price: prices.output, startsAt });
 }

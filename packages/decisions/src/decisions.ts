@@ -1,7 +1,7 @@
 // The decision sequence of one ask (docs/ARCHITECTURE.md, sections 4.6 and 4.7, requirements Q2 to Q5).
 // The decider reads, and the code decides: our code compares the probability with the level of the point.
 // Each answer is one record. A record with the same key is read first, so a second run does not ask again.
-import type { Decider, DeciderAnswer, DeciderQuestion, DecisionRecord } from "@tensquads/core";
+import type { CallUsage, Decider, DeciderAnswer, DeciderQuestion, DecisionRecord } from "@tensquads/core";
 
 import { OPTIONS_OF_ASK, type PointId, pointOf } from "./points.js";
 
@@ -26,6 +26,11 @@ export interface DecisionStore {
 	addDecision(row: DecisionRecord): Promise<void>;
 }
 
+// The costs (packages/costs). This package does not import them (C2).
+export interface DecisionCosts {
+	usage(ref: { cause: string; taskId: string | null }, kind: "decider", usage: readonly CallUsage[]): Promise<void>;
+}
+
 export type Why = "sure" | "below the level" | "not valid" | "error" | "timeout";
 
 export interface Verdict {
@@ -46,6 +51,8 @@ export interface DecisionsDeps {
 	// After this time, the answer is "not sure" (the setting DECIDER_TIMEOUT_MS).
 	timeoutMs: number;
 	now: () => string;
+	// One cost row for each usage of a decider call. The key has the cause of the ask (section 7.1).
+	costs?: DecisionCosts;
 }
 
 export interface Decisions {
@@ -145,11 +152,21 @@ export function decisions(deps: DecisionsDeps): Decisions {
 		};
 	}
 
+	// The cause of an ask is its key without the point: "cmd/{commandId}" or "action/{taskId}/{toolCallId}".
+	async function costOf(missing: readonly DecisionAsk[], result: CallResult): Promise<void> {
+		const usage = "answers" in result ? result.answers.find((answer) => answer.usage)?.usage : undefined;
+		const [first] = missing;
+		if (!usage || !first || !deps.costs) return;
+		const cause = first.sourceRef.slice(0, first.sourceRef.lastIndexOf("/"));
+		await deps.costs.usage({ cause, taskId: first.taskId }, "decider", usage);
+	}
+
 	// One call for the asks that have no record. It writes one record for each answer.
 	async function askMissing(who: Decider, missing: readonly DecisionAsk[], isShadow: boolean) {
 		const fresh = new Map<string, Verdict>();
 		if (missing.length === 0) return fresh;
 		const { result, ms } = await callDecider(who, missing.map(questionOf), deps.timeoutMs);
+		await costOf(missing, result);
 		for (const ask of missing) {
 			const found = "answers" in result ? result.answers.find((item) => item.id === ask.sourceRef) : undefined;
 			const answer = found?.answer ?? null;

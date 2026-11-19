@@ -28,6 +28,7 @@
 		"@tensquads/contracts": "0.0.2",
 		"@tensquads/core": "0.0.2",
 		"@tensquads/checker": "0.0.2",
+		"@tensquads/costs": "0.0.2",
 		"@tensquads/credits": "0.0.2",
 		"@tensquads/decisions": "0.0.2",
 		"@tensquads/gate": "0.0.2",

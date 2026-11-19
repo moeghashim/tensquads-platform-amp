@@ -1,5 +1,6 @@
 export * from "./account-writer.js";
 export * from "./action-writer.js";
+export * from "./cost-writer.js";
 export * from "./customer.js";
 export * from "./decision-writer.js";
 export * from "./memory-writer.js";

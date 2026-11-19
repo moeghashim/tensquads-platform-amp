@@ -33,6 +33,10 @@ export interface Env {
 	DECIDER_TIMEOUT_MS?: string;
 	// The second decider of the shadow mode: "none" or "fixed". The default is "none".
 	SHADOW_DECIDER?: string;
+	// The value of one credit, in millionths of a US dollar (task 10). The views use it for the difference.
+	CREDIT_VALUE_MICROS?: string;
+	// A request for a sandbox that no launcher took in this time is stuck (section 7.6).
+	LAUNCHER_TAKE_TIME_MS?: string;
 }
 
 export interface Settings {
@@ -46,6 +50,8 @@ export interface Settings {
 	paymentHoldMs: number;
 	deciderTimeoutMs: number;
 	shadowDecider: ShadowDecider;
+	creditValueMicros: number;
+	takeTimeMs: number;
 }
 
 // A setting that is missing or not valid. The message names the setting, never its value (section 10).
@@ -61,7 +67,9 @@ type SettingName =
 	| "SILENT_MS"
 	| "LAUNCHER_TAKE_WAIT_MS"
 	| "TOOL_LIMIT_MS"
-	| "DECIDER_TIMEOUT_MS";
+	| "DECIDER_TIMEOUT_MS"
+	| "CREDIT_VALUE_MICROS"
+	| "LAUNCHER_TAKE_TIME_MS";
 
 function text(env: Env, name: SettingName): string {
 	const value = env[name];
@@ -69,10 +77,10 @@ function text(env: Env, name: SettingName): string {
 	return value;
 }
 
-function milliseconds(env: Env, name: SettingName): number {
+function milliseconds(env: Env, name: SettingName, unit = "milliseconds"): number {
 	const value = Number(text(env, name));
 	if (!Number.isInteger(value) || value <= 0) {
-		throw new SettingError(`The setting ${name} is not a positive whole number of milliseconds.`);
+		throw new SettingError(`The setting ${name} is not a positive whole number of ${unit}.`);
 	}
 	return value;
 }
@@ -90,6 +98,8 @@ export function readSettings(env: Env): Settings {
 		paymentHoldMs: holdMilliseconds(env.PAYMENT_HOLD_MS),
 		deciderTimeoutMs: milliseconds(env, "DECIDER_TIMEOUT_MS"),
 		shadowDecider: shadowDeciderOf(env.SHADOW_DECIDER),
+		creditValueMicros: milliseconds(env, "CREDIT_VALUE_MICROS", "millionths of a US dollar"),
+		takeTimeMs: milliseconds(env, "LAUNCHER_TAKE_TIME_MS"),
 	};
 }
 

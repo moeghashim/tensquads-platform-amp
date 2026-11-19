@@ -779,3 +779,17 @@ Append-only learning log for commits and deploys. Add new entries only at the en
   - package.json
   - package-lock.json
   - docs/evidence/09-decisions
+## 2026-11-19T10:44:07.595Z
+- Trigger: commit
+- Learning: Sandbox time must be counted in milliseconds: rounding each step to seconds made short steps cost 0. Shared-cost parts are written before any share is sent, so a second run reads them back. The admin views return numbers and ids only.
+- Context: feat(costs): add costs, shared costs and the admin views
+- Branch: 10-costs-and-super-admin
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - apps
+  - packages
+  - db
+  - scripts
+  - package.json
+  - package-lock.json
+  - docs/evidence/10-costs-and-super-admin

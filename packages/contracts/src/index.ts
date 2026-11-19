@@ -1,6 +1,8 @@
-export { type AdminCommand, adminCommand } from "./admin.js";
+export { type AdminCommand, adminCommand, period } from "./admin.js";
 export {
 	type AcceptedAnswer,
+	ADMIN_VIEWS,
+	type AdminView,
 	type ApiError,
 	acceptedAnswer,
 	apiError,

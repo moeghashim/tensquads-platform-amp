@@ -59,6 +59,8 @@ export interface ModelRequest {
 export interface ModelAnswer {
 	text: string;
 	toolCalls: readonly ModelToolCall[];
+	// The id of the request at the provider. A request that really ran two times has two ids (section 7.1).
+	requestId: string;
 	provider: string;
 	model: string;
 	usage: { inputTokens: number; outputTokens: number };
@@ -66,6 +68,16 @@ export interface ModelAnswer {
 
 export interface Model {
 	complete(request: ModelRequest): Promise<ModelAnswer>;
+}
+
+// The usage of one call to a provider, for one cost row (requirement S1). A token unit is "1M input tokens" or
+// "1M output tokens": the price is for one million of them, and the units are tokens.
+export interface CallUsage {
+	requestId: string;
+	provider: string;
+	model: string;
+	units: number;
+	unit: string;
 }
 
 // Checker model. It says if the result of a task passes.
@@ -78,6 +90,8 @@ export interface CheckRequest {
 export interface CheckVerdict {
 	pass: boolean;
 	reason: string;
+	// What the call used, for the cost rows.
+	usage?: readonly CallUsage[];
 }
 
 export interface CheckerModel {
@@ -113,6 +127,8 @@ export interface DeciderAnswer {
 	id: string;
 	answer: string;
 	probability: number;
+	// What the call used, for the cost rows. All the answers of one call give the same usage.
+	usage?: readonly CallUsage[];
 }
 
 // One decision record: one answer of one decider, as one row of the table decisions (requirement Q3).
@@ -161,6 +177,8 @@ export interface ChannelMessage {
 }
 
 export interface Channel {
+	// The provider in the cost row of a send (requirement S1).
+	readonly name?: string;
 	send(message: ChannelMessage): Promise<SendOutcome>;
 	status(id: string): Promise<SendOutcome>;
 }
@@ -174,6 +192,8 @@ export interface PaymentOrder {
 }
 
 export interface Payment {
+	// The provider in the cost row of a payment (requirement S1).
+	readonly name?: string;
 	pay(order: PaymentOrder): Promise<SendOutcome>;
 	status(id: string): Promise<SendOutcome>;
 }

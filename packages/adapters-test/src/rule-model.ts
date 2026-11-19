@@ -64,7 +64,7 @@ function readCall(goal: string, step: number, seen: Seen): ToolCall | undefined 
 	return step === asks + reads + 1 ? actionCall(goal, id, seen) : undefined;
 }
 
-function botAnswer(request: ModelRequest, goal: string, seen: Seen): ModelAnswer {
+function botAnswer(request: ModelRequest, goal: string, seen: Seen): Answer {
 	const results = request.messages.filter((message) => message.role === "tool");
 	const call = scriptCall(goal, results.length + 1, seen);
 	if (call) return answer(request, "", [call]);
@@ -100,7 +100,7 @@ function toolOf(text: string): string {
 const NIGHT = /^Night job:/;
 const NIGHT_LINE = /^\[(\S+)\] ((?:always|never)\b.*)$/i;
 
-function nightAnswer(request: ModelRequest, content: string): ModelAnswer {
+function nightAnswer(request: ModelRequest, content: string): Answer {
 	const proposals = content.split("\n").flatMap((line) => {
 		const match = NIGHT_LINE.exec(line);
 		return match ? [{ text: match[2], evidence: [match[1]] }] : [];
@@ -110,7 +110,7 @@ function nightAnswer(request: ModelRequest, content: string): ModelAnswer {
 
 // A request of the model decider (task 09). The script answers "yes" to each yes or no question, the first option
 // to each choice, and "1" to each score, each at the probability 0.95.
-function deciderAnswer(request: ModelRequest, content: string): ModelAnswer {
+function deciderAnswer(request: ModelRequest, content: string): Answer {
 	const [, json = "{}"] = content.split("\n");
 	const { questions = [] } = JSON.parse(json) as { questions?: { id: string; type: string; options: string[] }[] };
 	const answers = questions.map((question) => ({
@@ -121,13 +121,20 @@ function deciderAnswer(request: ModelRequest, content: string): ModelAnswer {
 	return answer(request, JSON.stringify({ answers }));
 }
 
-function answer(request: ModelRequest, text: string, toolCalls: ModelAnswer["toolCalls"] = []): ModelAnswer {
+// The answer has no request id. The model adds it from its count of calls.
+function answer(
+	request: ModelRequest,
+	text: string,
+	toolCalls: ModelAnswer["toolCalls"] = [],
+): Omit<ModelAnswer, "requestId"> {
 	const inputTokens = request.messages.reduce((sum, message) => sum + message.content.length, 0);
 	return { text, toolCalls, provider: "test", model: "rule", usage: { inputTokens, outputTokens: text.length } };
 }
 
+type Answer = ReturnType<typeof answer>;
+
 // An answer to Petra. After the tool result, the turn ends with a text and no tool.
-function petraAnswer(request: ModelRequest): ModelAnswer {
+function petraAnswer(request: ModelRequest): Answer {
 	if (request.messages.at(-1)?.role === "tool") return answer(request, "Done.");
 	const text = [...request.messages].reverse().find((message) => message.role === "user")?.content ?? "";
 	const match = COMMAND.exec(text);
@@ -144,13 +151,18 @@ export function ruleModel(): Plugin {
 		needs: [],
 		apply: (ctx) => {
 			const seen: Seen = new Map();
+			let requests = 0;
+			const reply = (request: ModelRequest): Answer => {
+				const first = request.messages.find((message) => message.role === "user")?.content ?? "";
+				if (NIGHT.test(first)) return nightAnswer(request, first);
+				if (first.startsWith(DECIDER_HEADER)) return deciderAnswer(request, first);
+				const goal = GOAL.exec(first);
+				return goal?.[1] === undefined ? petraAnswer(request) : botAnswer(request, goal[1], seen);
+			};
 			ctx.provide(ports.model, {
 				complete: async (request) => {
-					const first = request.messages.find((message) => message.role === "user")?.content ?? "";
-					if (NIGHT.test(first)) return nightAnswer(request, first);
-					if (first.startsWith(DECIDER_HEADER)) return deciderAnswer(request, first);
-					const goal = GOAL.exec(first);
-					return goal?.[1] === undefined ? petraAnswer(request) : botAnswer(request, goal[1], seen);
+					requests += 1;
+					return { ...reply(request), requestId: `rule-${requests}` };
 				},
 			});
 		},

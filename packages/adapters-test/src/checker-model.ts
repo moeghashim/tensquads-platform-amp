@@ -16,7 +16,17 @@ export function ruleChecker(rule: CheckRule = notEmptyNotWrong): Plugin {
 		provides: [ports.checkerModel],
 		needs: [],
 		apply: (ctx) => {
-			ctx.provide(ports.checkerModel, { check: async (request) => rule(request) });
+			// Each check reports one unit "call", with a request id from the count of checks (requirement S1).
+			let checks = 0;
+			ctx.provide(ports.checkerModel, {
+				check: async (request) => {
+					checks += 1;
+					const usage = [
+						{ requestId: `rule-check-${checks}`, provider: "test", model: "rule-check", units: 1, unit: "call" },
+					];
+					return { ...rule(request), usage };
+				},
+			});
 		},
 	};
 }

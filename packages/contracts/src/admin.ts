@@ -38,20 +38,23 @@ const setUnitPrice = z
 		...base,
 		type: z.literal("SetUnitPrice"),
 		provider: id,
-		model: id,
+		// The model is empty for a price with no model, for example the seconds of the sandbox.
+		model: z.string(),
 		unit: id,
 		price: z.int().nonnegative(),
 		startsAt: z.iso.datetime(),
 	})
 	.strict();
 
+// A period is one UTC month, for example 2026-11.
+export const period = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Use a UTC month like 2026-11.");
+
 // The amount is in millionths of a US dollar.
-// A later task decides the form of the period.
 const setSharedCost = z
 	.object({
 		...base,
 		type: z.literal("SetSharedCost"),
-		period: id,
+		period,
 		kind: z.enum(["storage", "database", "worker"]),
 		provider: id,
 		amount: z.int().nonnegative(),

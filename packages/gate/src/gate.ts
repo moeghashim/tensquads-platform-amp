@@ -7,7 +7,7 @@ import type { SendOutcome } from "@tensquads/core";
 
 import { actionIdOf, contentHash } from "./hash.js";
 import { type RuleCheck, ruleCheck } from "./rules.js";
-import { contentProblem, describeAction, type Services, sendAction, serviceStatus } from "./services.js";
+import { contentProblem, describeAction, providerOf, type Services, sendAction, serviceStatus } from "./services.js";
 import type { ActionKind, ActionRequest, ActionRow, GateDeps } from "./types.js";
 
 export type GateAnswer = ActionAnswer | { busy: true };
@@ -109,7 +109,16 @@ export function gate(deps: GateDeps): Gate {
 		if (outcome === "unknown") return notConfirmed(row);
 		const answer = { outcome, actionId: idOf(row) };
 		await store.moveAction({ ...keyOf(row), from: ["started"], to: "done", answer, at: deps.now() });
-		return answerOf(await reread(row));
+		const stored = await reread(row);
+		await serviceCost(stored);
+		return answerOf(stored);
+	}
+
+	// The service answered "done". The cost row has the key of the action, so a second run adds no row.
+	async function serviceCost(row: ActionRow): Promise<void> {
+		const provider = providerOf(services, row.kind);
+		if (row.status !== "done" || provider === undefined || !deps.serviceCost) return;
+		await deps.serviceCost({ taskId: row.taskId, attemptNo: row.attemptNo, toolCallId: row.toolCallId, provider });
 	}
 
 	// The row is "started" before this call (requirement G6).

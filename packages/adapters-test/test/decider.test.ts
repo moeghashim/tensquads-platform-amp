@@ -22,10 +22,12 @@ const questions: DeciderQuestion[] = [
 
 test("Q2: decider-fixed gives the fixed answer when it is an option, and else yes or the first option", async () => {
 	const decider = (await startSystem([fixedDecider({ answer: "no", probability: 0.4 })])).port(ports.decider);
+	// Each call reports one unit "call", for the cost row of the decider (requirement S1).
+	const usage = [{ requestId: "fixed-1", provider: "test", model: "fixed", units: 1, unit: "call" }];
 	assert.deepEqual(await decider.ask(questions), [
-		{ id: "q-1", answer: "no", probability: 0.4 },
-		{ id: "q-2", answer: "support", probability: 0.4 },
-		{ id: "q-3", answer: "1", probability: 0.4 },
+		{ id: "q-1", answer: "no", probability: 0.4, usage },
+		{ id: "q-2", answer: "support", probability: 0.4, usage },
+		{ id: "q-3", answer: "1", probability: 0.4, usage },
 	]);
 });
 
@@ -42,7 +44,8 @@ test("Q2: decider-fixed with no options answers yes at 0.99, and a test gives an
 	const byPoint = (
 		await startSystem([fixedDecider({ points: { "which-bot": { answer: "sales", probability: 0.5 } } })])
 	).port(ports.decider);
-	assert.deepEqual((await byPoint.ask(questions))[1], { id: "q-2", answer: "sales", probability: 0.5 });
+	const usage = [{ requestId: "fixed-1", provider: "test", model: "fixed", units: 1, unit: "call" }];
+	assert.deepEqual((await byPoint.ask(questions))[1], { id: "q-2", answer: "sales", probability: 0.5, usage });
 });
 
 test("Q5: the shadow row provides the shadow port with its own name, and the row none provides null", async () => {
@@ -68,6 +71,7 @@ function recordingModel(text: string, seen: string[]): Plugin {
 						toolCalls: [],
 						provider: "test",
 						model: "recording",
+						requestId: "r-1",
 						usage: { inputTokens: 1, outputTokens: 1 },
 					};
 				},
@@ -86,10 +90,15 @@ test("Q2: decider-model asks the model one time for all the questions, and parse
 	});
 	const decider = (await startSystem([recordingModel(text, seen), modelDecider()])).port(ports.decider);
 	assert.equal(decider.name, "model");
+	// The usage of the one model call goes with each answer (requirement S1).
+	const usage = [
+		{ requestId: "r-1", provider: "test", model: "recording", units: 1, unit: "1M input tokens" },
+		{ requestId: "r-1", provider: "test", model: "recording", units: 1, unit: "1M output tokens" },
+	];
 	assert.deepEqual(await decider.ask(questions), [
-		{ id: "q-1", answer: "no", probability: 0.7 },
-		{ id: "q-2", answer: "sales", probability: 0.95 },
-		{ id: "q-3", answer: "0.2", probability: 0.8 },
+		{ id: "q-1", answer: "no", probability: 0.7, usage },
+		{ id: "q-2", answer: "sales", probability: 0.95, usage },
+		{ id: "q-3", answer: "0.2", probability: 0.8, usage },
 	]);
 	assert.equal(seen.length, 1, "One model call for all the questions.");
 	assert.match(seen[0] ?? "", /^Decider questions:/);

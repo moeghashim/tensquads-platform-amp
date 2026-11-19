@@ -105,6 +105,7 @@ export async function gateSetup(prefix: string, goal: string, options: GateOptio
 			toolLimitMs: TOOL_LIMIT_MS,
 			now: h.now,
 			reasons: refundReasons(decide, decisionWriter(h.database, h.accountId)),
+			serviceCost: h.costs.outsideService,
 		});
 	let current = make();
 	const gw = harnessGateway(h, work, { action: (request) => current.action(request) });

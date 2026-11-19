@@ -57,7 +57,13 @@ export function modelDecider(): Plugin {
 						messages: [{ role: "user", content: deciderRequestText(questions) }],
 						tools: [],
 					});
-					return parseDeciderAnswers(answer.text, questions);
+					// The usage of the model call goes with each answer, for the cost rows of the decider (S1).
+					const { requestId, provider, model: name, usage } = answer;
+					const used = [
+						{ requestId, provider, model: name, units: usage.inputTokens, unit: "1M input tokens" },
+						{ requestId, provider, model: name, units: usage.outputTokens, unit: "1M output tokens" },
+					];
+					return parseDeciderAnswers(answer.text, questions).map((item) => ({ ...item, usage: used }));
 				},
 			});
 		},

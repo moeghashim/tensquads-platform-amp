@@ -5,6 +5,7 @@ import { DurableObject } from "cloudflare:workers";
 import { checker } from "@tensquads/checker";
 import { command as commandSchema, type GatewayCall, type OwnerMessage, type PassClaims } from "@tensquads/contracts";
 import { ports, startSystem } from "@tensquads/core";
+import { costs as makeCosts } from "@tensquads/costs";
 import { credits } from "@tensquads/credits";
 import { decisions } from "@tensquads/decisions";
 import { gate } from "@tensquads/gate";
@@ -14,8 +15,11 @@ import { cleanedFact, memory as makeMemory } from "@tensquads/memory";
 import {
 	accountWriter,
 	actionWriter,
+	adminTrailRead,
 	CONVERSATION_KEY,
 	type ConversationState,
+	conversationCommand,
+	costWriter,
 	decisionWriter,
 	memoryWriter,
 	nightJob,
@@ -48,6 +52,8 @@ interface Started {
 	core: Petra;
 	writer: Writer;
 	tasks: Tasks;
+	// The trail read of a super admin (section 6.5). It records the read in admin_reads first.
+	adminTrail: (read: { readId: string; adminRef: string; taskId: string; at: string }) => Promise<unknown[]>;
 	loop: PetraLoop;
 	gw: Gateway;
 }
@@ -104,6 +110,9 @@ export class PetraObject extends DurableObject<Env> {
 			const actions = actionWriter(database, accountId);
 			const queue = system.port(ports.queue);
 			const model = system.port(ports.model);
+			// The cost rows of the account (task 10). Petra writes them (requirement P2).
+			const costRows = costWriter(database, accountId);
+			const costBook = makeCosts({ store: costRows, now });
 			// The memory holds the rules. Petra writes its rows (requirement P2).
 			const memory = makeMemory({ store: memoryWriter(database, accountId), tasks, tell: out.tell, model });
 			// The decision points of Petra and the gate (task 09). The shadow decider never acts (requirement Q5).
@@ -114,6 +123,7 @@ export class PetraObject extends DurableObject<Env> {
 				shadow: system.port(ports.shadowDecider),
 				timeoutMs: settings.deciderTimeoutMs,
 				now,
+				costs: costBook,
 			});
 			// The gate calls the payment and the channel. A runner has no path to them (requirement G1).
 			const actionGate = gate({
@@ -127,6 +137,7 @@ export class PetraObject extends DurableObject<Env> {
 				toolLimitMs: settings.toolLimitMs,
 				now,
 				reasons: refundReasons(decide, decisionRows),
+				serviceCost: costBook.outsideService,
 			});
 			const work = taskWork({
 				accountId,
@@ -151,7 +162,13 @@ export class PetraObject extends DurableObject<Env> {
 			const loop = await openPetraLoop({
 				storage,
 				tools,
-				complete: ({ messages }) => model.complete({ messages, tools: tools.map((tool) => tool.name) }),
+				complete: async ({ messages }) => {
+					const answer = await model.complete({ messages, tools: tools.map((tool) => tool.name) });
+					// A model call of Petra in a command has the key of the command (section 7.1, requirement S1).
+					const commandId = conversationCommand(messages);
+					if (commandId) await costBook.modelCall({ cause: `cmd/${commandId}`, taskId: null }, answer);
+					return answer;
+				},
 				wakeChanged: (at) => void this.arm(at),
 				// Petra removes the text of each forgotten fact from her own model requests (requirement M9). She keeps
 				// the text of a deleted fact until her next new conversation (requirement M8).
@@ -181,6 +198,7 @@ export class PetraObject extends DurableObject<Env> {
 				work,
 				nightJob: night.run,
 				memory,
+				costs: costBook,
 			});
 			const gw = gateway({
 				accountId,
@@ -190,6 +208,7 @@ export class PetraObject extends DurableObject<Env> {
 				objectStore,
 				model,
 				check: checker(system.port(ports.checkerModel)),
+				costs: costBook,
 				storage,
 				now,
 				workerCommit: settings.workerCommit,
@@ -197,7 +216,9 @@ export class PetraObject extends DurableObject<Env> {
 				noteCall: (claims) => work.noteCall(claims.taskId, claims.attemptNo),
 			});
 			await core.recover();
-			return { core, writer, tasks, loop, gw };
+			const adminTrail = (read: Parameters<Started["adminTrail"]>[0]) =>
+				adminTrailRead({ addAdminRead: costRows.addAdminRead, taskTrail: book.taskTrail }, read);
+			return { core, writer, tasks, loop, gw, adminTrail };
 		})();
 		return this.started;
 	}
@@ -241,6 +262,11 @@ export class PetraObject extends DurableObject<Env> {
 		"/messages": async (_request, started, after) =>
 			Response.json({ messages: await started.writer.ownerMessagesAfter(after) }),
 		"/stream": (_request, started, after) => this.openStream(after, started.writer),
+		"/admin-trail": async (request, started) => {
+			const read = (await request.json()) as { readId: string; adminRef: string; taskId: string };
+			const rows = await started.adminTrail({ ...read, at: new Date().toISOString() });
+			return Response.json({ taskId: read.taskId, readId: read.readId, rows });
+		},
 	};
 
 	override async fetch(request: Request): Promise<Response> {
