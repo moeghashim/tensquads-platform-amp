@@ -5,6 +5,8 @@
 import type { AttemptVersions, Brief, InboxMessage, SignalDelivery, StopName } from "@tensquads/contracts";
 import type { Database, Transaction } from "@tensquads/core";
 
+import { type TrailReader, type TrailWriter, trailWriter } from "./trail-writer.js";
+
 export type TaskStatus = "starting" | "running" | "waiting for the owner" | "done" | "failed" | "cancelled";
 
 export type AttemptReason =
@@ -13,18 +15,6 @@ export type AttemptReason =
 	| "after an answer"
 	| "after a failure"
 	| "the sandbox did not start";
-
-export type TrailKind =
-	| "owner message"
-	| "decision"
-	| "model call"
-	| "tool use"
-	| "check"
-	| "approval"
-	| "action"
-	| "refusal"
-	| "message to the owner"
-	| "memory";
 
 export interface TaskRow {
 	id: string;
@@ -65,42 +55,12 @@ export interface JournalCopyRow {
 	blobKey: string;
 }
 
-export interface NewTrailRow {
-	sourceRef: string;
-	taskId: string;
-	attemptNo: number;
-	turnNo: number | null;
-	kind: TrailKind;
-	actor: string;
-	summary: string;
-	data?: unknown;
-	at: string;
-}
-
-export interface TrailRow extends NewTrailRow {
-	data: unknown;
-}
-
 export type NewInboxRow = { taskId: string; sourceRef: string; at: string } & (
 	| { kind: "message"; text: string }
 	| { kind: "forget"; factId: string }
 );
 
-// What a task does now (requirement L7). Each value comes from the trail rows of the task.
-export interface TaskActivity {
-	taskId: string;
-	bot: string;
-	attemptNo: number;
-	turnNo: number | null;
-	toolCall: { id: string; tool: string } | null;
-	firstAt: string;
-	lastAt: string;
-	// The time from the first row of the task to now, and from the last row to now.
-	sinceFirstMs: number;
-	sinceLastMs: number;
-}
-
-export interface TaskWriter {
+export interface TaskWriter extends TrailWriter {
 	// Step 1 of "start a task". The id of the task is the command id. Returns the task id.
 	createTask(task: { commandId: string; bot: string; taskType: string; brief: Brief; at: string }): Promise<string>;
 	// Step 2. The ledger row has the key "task/{taskId}/charge".
@@ -126,15 +86,14 @@ export interface TaskWriter {
 		at: string;
 	}): Promise<void>;
 	addInbox(row: NewInboxRow): Promise<void>;
-	addTrail(row: NewTrailRow): Promise<void>;
 	// A task that ended does not change again.
 	setTaskStatus(change: { taskId: string; status: TaskStatus; stop?: StopName; at: string }): Promise<void>;
-	// The ledger row has the key "task/{taskId}/give back".
+	// The ledger row has the key "task/{taskId}/giveback".
 	giveBack(refund: { taskId: string; credits: number; at: string }): Promise<void>;
 	addDecision(decision: NewDecision): Promise<void>;
 }
 
-export interface TaskReader {
+export interface TaskReader extends TrailReader {
 	task(taskId: string): Promise<TaskRow | undefined>;
 	// The attempt with the largest number.
 	currentAttempt(taskId: string): Promise<AttemptRow | undefined>;
@@ -142,10 +101,6 @@ export interface TaskReader {
 	newestJournalCopy(taskId: string): Promise<JournalCopyRow | undefined>;
 	// All the messages of the task and the full forget list.
 	inbox(taskId: string): Promise<{ messages: InboxMessage[]; forget: string[] }>;
-	trailRow(sourceRef: string): Promise<TrailRow | undefined>;
-	// The number of trail rows of one kind for the task, in all attempts.
-	countTrail(taskId: string, kind: TrailKind): Promise<number>;
-	taskActivity(taskId: string, now: string): Promise<TaskActivity | undefined>;
 	// All the attempts of the task, by number.
 	attempts(taskId: string): Promise<AttemptRow[]>;
 	// The tasks that did not end, the oldest first.
@@ -209,66 +164,6 @@ const ANSWER_PREFIX = "answer/";
 // The key of the decision row of an answer of the owner.
 export const answerRef = (questionId: string): string => `${ANSWER_PREFIX}${questionId}`;
 
-interface TrailDbRow {
-	source_ref: string;
-	task_id: string;
-	attempt_no: number;
-	turn_no: number | null;
-	kind: TrailKind;
-	actor: string;
-	summary: string;
-	data: unknown;
-	at: Date;
-}
-
-function toTrailRow(row: TrailDbRow): TrailRow {
-	return {
-		sourceRef: row.source_ref,
-		taskId: row.task_id,
-		attemptNo: row.attempt_no,
-		turnNo: row.turn_no,
-		kind: row.kind,
-		actor: row.actor,
-		summary: row.summary,
-		data: row.data,
-		at: row.at.toISOString(),
-	};
-}
-
-function toolCallOf(data: unknown): { id: string; tool: string } | null {
-	const value = data as { toolCallId?: unknown; tool?: unknown } | null;
-	if (typeof value?.toolCallId !== "string" || typeof value.tool !== "string") return null;
-	return { id: value.toolCallId, tool: value.tool };
-}
-
-const TRAIL_COLUMNS = "source_ref, task_id, attempt_no, turn_no, kind, actor, summary, data, at";
-
-async function activity(tx: Transaction, taskId: string, now: string): Promise<TaskActivity | undefined> {
-	const [last] = await tx.query<TrailDbRow>(
-		`SELECT ${TRAIL_COLUMNS} FROM trail WHERE task_id = $1 ORDER BY seq DESC LIMIT 1`,
-		[taskId],
-	);
-	if (!last) return undefined;
-	const [tool] = await tx.query<TrailDbRow>(
-		`SELECT ${TRAIL_COLUMNS} FROM trail WHERE task_id = $1 AND kind = 'tool use' ORDER BY seq DESC LIMIT 1`,
-		[taskId],
-	);
-	const [first] = await tx.query<{ at: Date }>("SELECT min(at) AS at FROM trail WHERE task_id = $1", [taskId]);
-	const nowMs = Date.parse(now);
-	const firstAt = first?.at ?? last.at;
-	return {
-		taskId,
-		bot: last.actor,
-		attemptNo: last.attempt_no,
-		turnNo: last.turn_no,
-		toolCall: tool ? toolCallOf(tool.data) : null,
-		firstAt: firstAt.toISOString(),
-		lastAt: last.at.toISOString(),
-		sinceFirstMs: nowMs - firstAt.getTime(),
-		sinceLastMs: nowMs - last.at.getTime(),
-	};
-}
-
 export function taskWriter(database: Database, accountId: string): TaskWriter & TaskReader {
 	const run = <T>(work: (tx: Transaction) => Promise<T>) => database.transaction({ role: "petra", accountId }, work);
 	const addLedger = (sourceRef: string, taskId: string, kind: "charge" | "give back", credits: number, at: string) =>
@@ -280,6 +175,7 @@ export function taskWriter(database: Database, accountId: string): TaskWriter & 
 			);
 		});
 	return {
+		...trailWriter(database, accountId),
 		createTask: (task) =>
 			run(async (tx) => {
 				await tx.query(
@@ -293,7 +189,7 @@ export function taskWriter(database: Database, accountId: string): TaskWriter & 
 		chargeTask: (charge) =>
 			addLedger(`task/${charge.taskId}/charge`, charge.taskId, "charge", -charge.credits, charge.at),
 		giveBack: (refund) =>
-			addLedger(`task/${refund.taskId}/give back`, refund.taskId, "give back", refund.credits, refund.at),
+			addLedger(`task/${refund.taskId}/giveback`, refund.taskId, "give back", refund.credits, refund.at),
 		addAttempt: (attempt) =>
 			run(async (tx) => {
 				await tx.query(
@@ -355,25 +251,6 @@ export function taskWriter(database: Database, accountId: string): TaskWriter & 
 					`INSERT INTO task_inbox (task_id, source_ref, account_id, kind, body, fact_id, at)
 					 VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING`,
 					[row.taskId, row.sourceRef, accountId, row.kind, body, factId, row.at],
-				);
-			}),
-		addTrail: (row) =>
-			run(async (tx) => {
-				await tx.query(
-					`INSERT INTO trail (account_id, ${TRAIL_COLUMNS})
-					 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT DO NOTHING`,
-					[
-						accountId,
-						row.sourceRef,
-						row.taskId,
-						row.attemptNo,
-						row.turnNo,
-						row.kind,
-						row.actor,
-						row.summary,
-						row.data === undefined ? null : JSON.stringify(row.data),
-						row.at,
-					],
 				);
 			}),
 		addDecision: (decision) =>
@@ -488,21 +365,5 @@ export function taskWriter(database: Database, accountId: string): TaskWriter & 
 				}
 				return { messages, forget };
 			}),
-		trailRow: (sourceRef) =>
-			run(async (tx) => {
-				const rows = await tx.query<TrailDbRow>(`SELECT ${TRAIL_COLUMNS} FROM trail WHERE source_ref = $1`, [
-					sourceRef,
-				]);
-				return rows[0] ? toTrailRow(rows[0]) : undefined;
-			}),
-		countTrail: (taskId, kind) =>
-			run(async (tx) => {
-				const rows = await tx.query<{ n: string }>(
-					"SELECT count(*) AS n FROM trail WHERE task_id = $1 AND kind = $2",
-					[taskId, kind],
-				);
-				return Number(rows[0]?.n ?? 0);
-			}),
-		taskActivity: (taskId, now) => run((tx) => activity(tx, taskId, now)),
 	};
 }

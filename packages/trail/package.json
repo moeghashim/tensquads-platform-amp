@@ -1,0 +1,15 @@
+{
+	"name": "@tensquads/trail",
+	"version": "0.0.2",
+	"private": true,
+	"description": "One trail row for each step, large items in the object store, and the deletion of old trails, with no Cloudflare import.",
+	"license": "MIT",
+	"type": "module",
+	"exports": "./src/index.ts",
+	"engines": {
+		"node": "26.x"
+	},
+	"dependencies": {
+		"@tensquads/core": "0.0.2"
+	}
+}

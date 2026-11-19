@@ -286,7 +286,7 @@ test("G4: Petra stops after the pending action and before the request; the owner
 test("G10: an ApprovalDecision for a task that was cancelled sends no action, and the owner gets a status message", async () => {
 	const s = await gateSetup("cancel", "refund 25 to cust-1");
 	assert.deepEqual(await s.action({ content: refund(25) }), { status: "wait" });
-	await s.work.cancel(s.taskId);
+	await s.work.cancel(s.taskId, "owner");
 	const hash = await contentHash("refund", refund(25));
 	await s.work.approvalDecision(decision(`${s.taskId}-d`, `${s.taskId}/call-1`, hash, "approve"));
 	assert.equal((await s.h.actions.approval(s.taskId, "call-1", hash))?.status, "pending");

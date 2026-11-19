@@ -399,7 +399,7 @@ test("P6: each write of the task writer runs two times, and the rows are the sam
 		],
 		ledger: [
 			{ source_ref: `task/${commandId}/charge`, kind: "charge", credits: "-3" },
-			{ source_ref: `task/${commandId}/give back`, kind: "give back", credits: "3" },
+			{ source_ref: `task/${commandId}/giveback`, kind: "give back", credits: "3" },
 		],
 	});
 });

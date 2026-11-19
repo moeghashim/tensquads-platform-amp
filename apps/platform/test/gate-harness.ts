@@ -5,9 +5,9 @@ import { sendHold, testChannel, testPayment } from "@tensquads/adapters-test";
 import type { ActionAnswer, GatewayCall, OwnerMessage } from "@tensquads/contracts";
 import { type ChannelMessage, type PaymentOrder, ports, type SendOutcome, startSystem } from "@tensquads/core";
 import { type Gate, type GateStore, gate } from "@tensquads/gate";
-import { type Gateway, gateway } from "@tensquads/gateway";
+import type { Gateway } from "@tensquads/gateway";
 
-import { type Harness, harness, memoryStorage, startRunner } from "./task-harness.js";
+import { type Harness, harness, harnessGateway, startRunner } from "./task-harness.js";
 
 export const TOOL_LIMIT_MS = 60_000;
 
@@ -25,6 +25,7 @@ export interface GateSetup {
 	restart(store?: GateStore): Gate;
 	action(input: {
 		attemptNo?: number;
+		callNo?: number;
 		toolCallId?: string;
 		tool?: string;
 		content: Record<string, unknown>;
@@ -77,29 +78,7 @@ export async function gateSetup(prefix: string, goal: string, options: GateOptio
 			now: h.now,
 		});
 	let current = make();
-	const objects = memoryStorage();
-	const gw = gateway({
-		accountId: h.accountId,
-		tasks: h.tasks,
-		actions: h.actions,
-		gate: { action: (request) => current.action(request) },
-		objectStore: { put: objects.put, get: objects.get },
-		model: {
-			complete: async () => ({
-				text: "ok",
-				toolCalls: [],
-				provider: "test",
-				model: "scripted",
-				usage: { inputTokens: 1, outputTokens: 1 },
-			}),
-		},
-		check: async () => ({ verdict: "stands", reason: "The double always says stands." }),
-		storage: memoryStorage(),
-		now: h.now,
-		workerCommit: "worker-abc",
-		settle: (claims, result) => work.afterResult(claims, result),
-		noteCall: async () => undefined,
-	});
+	const gw = harnessGateway(h, work, { action: (request) => current.action(request) });
 	return {
 		h,
 		taskId,
@@ -115,8 +94,8 @@ export async function gateSetup(prefix: string, goal: string, options: GateOptio
 			current = make(store);
 			return current;
 		},
-		action: ({ attemptNo = 1, toolCallId = "call-1", tool = "refund", content }) =>
-			current.action({ taskId, attemptNo, bot: "test-bot", toolCallId, tool, content }),
+		action: ({ attemptNo = 1, callNo = 1, toolCallId = "call-1", tool = "refund", content }) =>
+			current.action({ taskId, attemptNo, callNo, bot: "test-bot", toolCallId, tool, content }),
 		messages: async (type) => (await h.writer.ownerMessagesAfter(0)).filter((message) => message.type === type),
 		async nextAttempt(causeRef) {
 			const attempt = (await h.tasks.attempts(taskId)).find((item) => item.causeRef === causeRef);

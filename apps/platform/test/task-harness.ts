@@ -1,8 +1,10 @@
 // The parts of Petra for the Node tests of task 04, against a real Postgres.
-// The sandbox list, the queue and the storage of the Durable Object are fakes in memory.
+// The sandbox list, the queue, the object store and the storage of the Durable Object are fakes in memory.
+// The credits and the trail are the real packages, joined as the Durable Object joins them.
 import type { OwnerMessage, PassClaims } from "@tensquads/contracts";
 import type { Database, SandboxRequest } from "@tensquads/core";
-import { signPass } from "@tensquads/gateway";
+import { credits } from "@tensquads/credits";
+import { type Gateway, type GatewayGate, gateway, signPass } from "@tensquads/gateway";
 import {
 	type ActionWriter,
 	accountWriter,
@@ -16,6 +18,7 @@ import {
 	taskWork,
 	taskWriter,
 } from "@tensquads/petra";
+import { trail } from "@tensquads/trail";
 
 import { testDatabase, uniqueId } from "./db.js";
 
@@ -34,6 +37,24 @@ export function memoryStorage(): PetraStorage & { map: Map<string, unknown> } {
 
 type Tasks = ReturnType<typeof taskWriter>;
 
+// An object store in memory, with delete.
+function memoryObjects() {
+	const map = new Map<string, string>();
+	return {
+		map,
+		put: async (key: string, body: string) => void map.set(key, body),
+		get: async (key: string) => map.get(key),
+		delete: async (key: string) => void map.delete(key),
+	};
+}
+
+// The trail package on the task writer, as the Durable Object joins them.
+const trailOf = (tasks: Tasks, objects: ReturnType<typeof memoryObjects>) =>
+	trail({ store: tasks, objectStore: objects });
+
+// The credits of a new account in the harness. A test with 0 gets no grant row.
+const HARNESS_CREDITS = 100;
+
 export interface BuildOptions {
 	storage?: PetraStorage;
 	tasks?: Tasks;
@@ -49,6 +70,9 @@ export interface Harness {
 	accountId: string;
 	writer: ReturnType<typeof accountWriter>;
 	tasks: Tasks;
+	// The trail package with the task writer and the object store of the harness.
+	trail: ReturnType<typeof trailOf>;
+	objects: ReturnType<typeof memoryObjects>;
 	actions: ActionWriter;
 	storage: ReturnType<typeof memoryStorage>;
 	// The list of the Platform object: one request for each task and attempt.
@@ -66,7 +90,7 @@ export interface Harness {
 	claims(taskId: string, attemptNo: number): PassClaims;
 }
 
-export async function harness(prefix: string): Promise<Harness> {
+export async function harness(prefix: string, initialCredits = HARNESS_CREDITS): Promise<Harness> {
 	const database = testDatabase();
 	const accountId = uniqueId(prefix);
 	await platformWriter(database).addAccount({
@@ -78,7 +102,11 @@ export async function harness(prefix: string): Promise<Harness> {
 		at: AT,
 	});
 	const writer = accountWriter(database, accountId);
-	const tasks = taskWriter(database, accountId);
+	if (initialCredits > 0) await writer.addGrant({ sourceRef: "cmd/harness/grant", credits: initialCredits, at: AT });
+	const rawTasks = taskWriter(database, accountId);
+	const objects = memoryObjects();
+	const book = trailOf(rawTasks, objects);
+	const tasks: Tasks = { ...rawTasks, addTrail: book.add, trailRow: book.row };
 	const storage = memoryStorage();
 	const list = new Map<string, SandboxRequest>();
 	const jobs: Harness["jobs"] = [];
@@ -91,6 +119,8 @@ export async function harness(prefix: string): Promise<Harness> {
 		accountId,
 		writer,
 		tasks,
+		trail: book,
+		objects,
 		actions: actionWriter(database, accountId),
 		storage,
 		list,
@@ -104,7 +134,8 @@ export async function harness(prefix: string): Promise<Harness> {
 		build(options = {}) {
 			const store = options.storage ?? storage;
 			const usedTasks = options.tasks ?? tasks;
-			const out = outbox({ writer, storage: store, now: clock, send: (message) => void sent.push(message) });
+			const send = (message: OwnerMessage) => void sent.push(message);
+			const out = outbox({ writer, storage: store, now: clock, send, addTrail: usedTasks.addTrail });
 			const work = taskWork({
 				accountId,
 				tasks: usedTasks,
@@ -126,7 +157,9 @@ export async function harness(prefix: string): Promise<Harness> {
 				},
 				signPass: (claims) => signPass(claims, PASS_KEY),
 				takenAt: async (taskId, attemptNo) => taken.get(`${taskId}/${attemptNo}`),
-				creditsSufficient: async () => true,
+				credits: credits({
+					store: { balance: writer.balance, chargeTask: usedTasks.chargeTask, giveBack: usedTasks.giveBack },
+				}),
 				settings: SETTINGS,
 				now: clock,
 				actions: actionWriter(database, accountId),
@@ -145,6 +178,33 @@ export async function harness(prefix: string): Promise<Harness> {
 	};
 }
 
+// The gateway of the harness. The model always answers "ok", and the check always says "stands".
+// A result that stands goes to the task work. The default gate refuses each action.
+export function harnessGateway(h: Harness, work: TaskWork, gate?: GatewayGate): Gateway {
+	return gateway({
+		accountId: h.accountId,
+		tasks: h.tasks,
+		actions: h.actions,
+		gate: gate ?? { action: async () => ({ status: "refused", reason: "This test has no gate." }) },
+		objectStore: h.objects,
+		model: {
+			complete: async () => ({
+				text: "ok",
+				toolCalls: [],
+				provider: "test",
+				model: "scripted",
+				usage: { inputTokens: 1, outputTokens: 1 },
+			}),
+		},
+		check: async () => ({ verdict: "stands", reason: "The double always says stands." }),
+		storage: memoryStorage(),
+		now: h.now,
+		workerCommit: "worker-abc",
+		settle: (claims, result) => work.afterResult(claims, result),
+		noteCall: async () => undefined,
+	});
+}
+
 // Runs one tool of Petra, as the loop runs it.
 export async function runTool(tools: ReturnType<typeof petraTools>, name: string, input: Record<string, unknown>) {
 	const tool = tools.find((item) => item.name === name);
@@ -158,8 +218,9 @@ export async function taskRows(database: Database, accountId: string) {
 		tasks: await tx.query<{ id: string; status: string; stop: string | null }>(
 			"SELECT id, status, stop FROM tasks ORDER BY id",
 		),
+		// The ledger rows of the tasks. The grant of the harness has no task.
 		ledger: await tx.query<{ source_ref: string; kind: string; credits: string }>(
-			"SELECT source_ref, kind, credits FROM ledger ORDER BY source_ref",
+			"SELECT source_ref, kind, credits FROM ledger WHERE task_id IS NOT NULL ORDER BY source_ref",
 		),
 		attempts: await tx.query<{
 			task_id: string;

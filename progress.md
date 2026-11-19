@@ -738,3 +738,17 @@ Append-only learning log for commits and deploys. Add new entries only at the en
   - apps
   - docs/evidence/06-checker
   - package-lock.json
+## 2026-11-19T07:04:54.697Z
+- Trigger: commit
+- Learning: The trail deletion of T8 is a restrictive row-level policy that uses the database time. An R2 item of a trail row with no task needs its own key, because such a row expires alone. Status done is the last step of a stop, so a reader that sees done also sees the message.
+- Context: feat(credits): add credits and the trail
+- Branch: 07-credits-and-trail
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - apps
+  - packages
+  - db
+  - scripts
+  - package.json
+  - package-lock.json
+  - docs/evidence/07-credits-and-trail

@@ -7,3 +7,4 @@ export * from "./platform.js";
 export * from "./platform-writer.js";
 export * from "./task-work.js";
 export * from "./task-writer.js";
+export * from "./trail-writer.js";

@@ -32,14 +32,32 @@ export interface TaskWorkDeps {
 	signPass: (claims: PassClaims) => Promise<string>;
 	// The time when a launcher took the sandbox request of the attempt, or undefined.
 	takenAt: (taskId: string, attemptNo: number) => Promise<number | undefined>;
-	// The credits double of task 04 always says true. Task 07 replaces it.
-	creditsSufficient: (credits: number) => Promise<boolean>;
+	// The credits (packages/credits). This package does not import them (requirement C2).
+	credits: TaskCredits;
 	settings: TaskSettings;
 	now: () => string;
 	// The actions, the approvals and the rules (section 4.4).
 	actions: ActionWriter;
 	// The "check action" job of the gate (packages/gate). This package does not import the gate (requirement C2).
 	checkAction: (commandId: string, actionId: string) => Promise<void>;
+}
+
+// The cause of a cancel: the owner, or a deletion that is due (section 7.7).
+export type CancelCause = "owner" | "deletion";
+
+// A task of one bot, with its task type. The credits read the price from the bot definition.
+interface PricedTask {
+	taskId: string;
+	bot: string;
+	taskType: string;
+}
+
+// The credits of the account (section 7.6, requirements T1 to T3).
+export interface TaskCredits {
+	sufficient(bot: string, taskType: string): Promise<boolean>;
+	charge(task: PricedTask, at: string): Promise<void>;
+	giveBack(task: PricedTask, at: string): Promise<void>;
+	cancelGivesBack(cause: CancelCause, runnerStarted: boolean): boolean;
 }
 
 export interface NewTask {
@@ -56,8 +74,9 @@ export type CancelOutcome = "cancelled" | "no task" | "ended";
 export interface TaskWork {
 	// The tool "start a task" (section 4.6). One command starts one task or none. The task id is the command id.
 	startTask(task: NewTask): Promise<StartOutcome>;
-	// The tool "stop a task" and the command CancelTask (requirement L15).
-	cancel(taskId: string): Promise<CancelOutcome>;
+	// The tool "stop a task" and the command CancelTask have the cause "owner" (requirement L15).
+	// The cause "deletion" always gives the credits back (requirement T3).
+	cancel(taskId: string, cause: CancelCause): Promise<CancelOutcome>;
 	sandboxExited(command: Extract<Command, { type: "SandboxExited" }>): Promise<void>;
 	checkTask(commandId: string, taskId: string): Promise<void>;
 	ownerAnswer(command: Extract<Command, { type: "OwnerAnswer" }>): Promise<boolean>;
@@ -106,6 +125,8 @@ function briefOf(task: NewTask): Brief {
 		replyTo: task.replyTo,
 	};
 }
+
+const priced = (task: TaskRow): PricedTask => ({ taskId: task.id, bot: task.bot, taskType: task.taskType });
 
 const endedText = (status: string): string =>
 	`The task ${status === "cancelled" ? "was cancelled" : "ended"}. No action goes out.`;
@@ -258,6 +279,17 @@ export function taskWork(deps: TaskWorkDeps): TaskWork {
 		await deps.actions.decideApproval({ ...key, status, decidedBy: command.commandId, at: command.at });
 		const approval = await deps.actions.approval(key.taskId, key.toolCallId, key.contentHash);
 		if (approval?.decidedBy !== command.commandId) return false;
+		await tasks.addTrail({
+			sourceRef: `cmd/${command.commandId}/approval`,
+			taskId: action.taskId,
+			attemptNo: null,
+			turnNo: null,
+			kind: "approval",
+			actor: "owner",
+			summary: `The owner ${status} the action ${action.toolCallId}.`,
+			data: { toolCallId: action.toolCallId, contentHash: action.contentHash, status },
+			at: command.at,
+		});
 		// A rejected action gets its final status now. The model gets the refusal in the next attempt (G10).
 		if (status === "rejected") {
 			await deps.actions.moveAction({ ...key, from: ["pending"], to: "rejected", at: deps.now() });
@@ -306,17 +338,28 @@ export function taskWork(deps: TaskWorkDeps): TaskWork {
 
 	return {
 		async startTask(newTask) {
-			const { price } = taskTypeOf(newTask.bot, newTask.taskType);
 			const at = deps.now();
-			// Step 1: the task row. A second run finds it.
+			// Step 1: the task row. A second run finds it. With too few credits, no task starts (requirement T1).
 			if (!(await tasks.task(newTask.commandId))) {
-				if (!(await deps.creditsSufficient(price))) return "no credits";
+				if (!(await deps.credits.sufficient(newTask.bot, newTask.taskType))) return "no credits";
 				await tasks.createTask({ ...newTask, brief: briefOf(newTask), at });
 			}
 			const task = await openTask(newTask.commandId);
 			if (!task) return "ended";
+			// The first row of the trail of the task is the message of the owner (requirement T6).
+			await tasks.addTrail({
+				sourceRef: `cmd/${newTask.commandId}/owner-message`,
+				taskId: task.id,
+				attemptNo: null,
+				turnNo: null,
+				kind: "owner message",
+				actor: "owner",
+				summary: "The owner asked for a task.",
+				data: { text: newTask.goal },
+				at,
+			});
 			// Step 2: the charge. Step 3: attempt 1, with the command id as its cause. Step 4: the request.
-			await tasks.chargeTask({ taskId: task.id, credits: price, at });
+			await deps.credits.charge(priced(task), at);
 			const attemptNo = await tasks.addAttempt({
 				taskId: task.id,
 				causeRef: newTask.commandId,
@@ -327,7 +370,7 @@ export function taskWork(deps: TaskWorkDeps): TaskWork {
 			return "started";
 		},
 
-		async cancel(taskId) {
+		async cancel(taskId, cause) {
 			const task = await tasks.task(taskId);
 			if (!task) return "no task";
 			// A cancel that runs again continues. A task that ended in another way does not change.
@@ -338,9 +381,10 @@ export function taskWork(deps: TaskWorkDeps): TaskWork {
 			const current = attempts.at(-1);
 			// The pass ends: each later call finds a task that ended, and is refused.
 			if (current) await tasks.endAttempt({ taskId, attemptNo: current.attemptNo, exit: "cancelled", at });
-			// The credits go back only if no runner made a start call (requirement T3).
-			const giveBack = attempts.every((attempt) => attempt.startedAt === null);
-			if (giveBack) await tasks.giveBack({ taskId, credits: taskTypeOf(task.bot, task.taskType).price, at });
+			// The credits go back for a deletion, or if no runner made a start call (requirement T3).
+			const runnerStarted = attempts.some((attempt) => attempt.startedAt !== null);
+			const giveBack = deps.credits.cancelGivesBack(cause, runnerStarted);
+			if (giveBack) await deps.credits.giveBack(priced(task), at);
 			const turns = await tasks.countTrail(taskId, "model call");
 			const credits = giveBack ? " The credits went back." : "";
 			await outbox.tell({
@@ -397,6 +441,17 @@ export function taskWork(deps: TaskWorkDeps): TaskWork {
 				answer: command.text,
 				at: command.at,
 			});
+			await tasks.addTrail({
+				sourceRef: `cmd/${command.commandId}/decision`,
+				taskId: task.id,
+				attemptNo: null,
+				turnNo: null,
+				kind: "decision",
+				actor: "owner",
+				summary: `The owner answered the question ${command.questionId}.`,
+				data: { questionId: command.questionId, answer: command.text },
+				at: command.at,
+			});
 			const attemptNo = await tasks.addAttempt({
 				taskId: task.id,
 				causeRef: command.commandId,
@@ -433,8 +488,7 @@ export function taskWork(deps: TaskWorkDeps): TaskWork {
 				await missedDecision(task);
 			} else if (result.stop === "max_turns" || result.stop === "max_budget") {
 				await tasks.endAttempt({ taskId, attemptNo, exit: result.stop, at });
-				await tasks.setTaskStatus({ taskId, status: "done", stop: result.stop, at });
-				await tasks.giveBack({ taskId, credits: taskTypeOf(task.bot, task.taskType).price, at });
+				await deps.credits.giveBack(priced(task), at);
 				await outbox.tell({
 					sourceRef: `task/${taskId}/limit`,
 					channel: task.brief.replyTo,
@@ -444,6 +498,8 @@ export function taskWork(deps: TaskWorkDeps): TaskWork {
 						text: `The task ${taskId} stopped at the limit ${result.stop}. The credits went back.`,
 					},
 				});
+				// The status "done" is the last step, as for a result. Then the owner has the message when the task ends.
+				await tasks.setTaskStatus({ taskId, status: "done", stop: result.stop, at });
 			}
 			// The stop "error" comes with an exit report. The report starts the new attempt.
 		},
