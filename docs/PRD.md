@@ -389,7 +389,23 @@ Each requirement belongs to one task. A task uses a test double for a part that 
 
 ## 13. The UI library
 
-The screens come later, from `moeghashim/tensquads-ui`. Today that repository has only its plan.
+The screens come later, from `moeghashim/tensquads-ui`. That repository has a working component library, `@tensquads/ui`.
+
+**What is on `main` today.** It has 14 documented components: Badge, Button, Chip, Dialog, Field, Form, Input, Menu, SegmentedControl, Switch, Tooltip, Squadmate, Chat (the log, the messages, the composer, the working line and the error line) and ChatReply (Markdown and streamed OpenUI blocks). It also has the OpenUI bridge: `TensquadsRenderer` on the client and `buildSystemPrompt` on the server. Each part supports English and Arabic with right-to-left layout, and the light and dark themes.
+
+**Where to look.**
+
+- The component list: the "Components" table at the top of `README.md` in `moeghashim/tensquads-ui`, or the agent index `llms.txt` in the same repository.
+- The live gallery: https://tensquads-ui-preview.mohanadgh.workers.dev/components.
+- The agent skill: `npx skills@latest add moeghashim/tensquads-ui --skill tensquads-ui`.
+
+**How a later build uses it.**
+
+- Install it from a pinned commit, for example `npm install github:moeghashim/tensquads-ui#ec3b531`. Then follow the section "Styles, locale, and theme" of its `README.md`, and import from `@tensquads/ui/react`.
+- Use a library component when it exists. Do not build your own.
+- Some parts are not on `main` yet. On the branch `v0.2-dashboards`, Card, PageHeader and StatTile are done. BarChart, Bars, Distribution, DataTable, EmptyState, Sidebar, ApprovalCard and ChatLauncher come next, then the demo dashboards for the admin and the store owner. Use each one when it lands. Until a part lands, build only that part in this repository, and mark it to be replaced by the library version.
+
+**Rules for this build.** This build has no screens (decision D16).
 
 - Do not import `@tensquads/ui`.
 - Do not write a component, a style or OpenUI text.

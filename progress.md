@@ -809,3 +809,12 @@ Append-only learning log for commits and deploys. Add new entries only at the en
   - .gitignore
   - tsconfig.json
   - docs/evidence/11-evals
+
+## 2026-11-19T12:13:48.585Z
+- Trigger: commit
+- Learning: PRD section 13 said that tensquads-ui had only its plan. It now ships 14 components and the OpenUI bridge. A later build installs it from a pinned commit and uses each library component when it lands.
+- Context: docs(prd): describe the working UI library in section 13
+- Branch: docs-prd-ui-library
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - docs/PRD.md
