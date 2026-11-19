@@ -227,3 +227,46 @@ test("S8: the role of the views cannot read an account table, and the trail read
 	);
 	assert.deepEqual(reads, [{ read_id: "read-1", admin_ref: "super-admin" }]);
 });
+
+test("N8: the model view gives, for each provider and model, the owner commands and the mean cost of one", async () => {
+	const h = await harness("n8");
+	const provider = `p-${h.accountId}`;
+	await setPrices(h, provider, { input: 1_000_000, output: 2_000_000 }, "2026-01-01T00:00:00.000Z");
+	const { core } = h.build();
+	const answer = (requestId: string, inputTokens: number) => ({
+		text: "ok",
+		toolCalls: [],
+		requestId,
+		provider,
+		model: "m",
+		usage: { inputTokens, outputTokens: 0 },
+	});
+	// Two owner commands: one with two calls (1000 + 3000 tokens), one with one call (2000 tokens).
+	for (const [n, calls] of [
+		[1, [1000, 3000]],
+		[2, [2000]],
+	] as const) {
+		const commandId = `${h.accountId}-o${n}`;
+		await core.accept(
+			{ type: "OwnerMessage", commandId, at: AT, messageId: `m${n}`, channel: "chat", text: "Hello" },
+			"owner",
+		);
+		for (const [index, tokens] of calls.entries()) {
+			await h.costs.modelCall({ cause: `cmd/${commandId}`, taskId: null }, answer(`r${n}-${index}`, tokens));
+		}
+	}
+	// A call of a command that is not an owner message counts for the cost, and not for the mean of a command.
+	await h.costs.modelCall({ cause: `cmd/${h.accountId}-night`, taskId: null }, answer("r-night", 9000));
+	// A turn with no command and the night job count for the cost, and not as owner commands (requirement N4).
+	await h.costs.modelCall({ cause: "history", taskId: null }, answer("r-history", 1000));
+	await h.costs.modelCall({ cause: "night/2026-11-18", taskId: null }, answer("r-propose", 500));
+	const rows = await platformWriter(h.database).adminView("model", CREDIT);
+	const model = rows.find((row) => row.provider === provider && row.model === "m");
+	assert.deepEqual(numbers(model, ["calls", "input_tokens", "cost", "owner_commands", "mean_command_cost"]), {
+		calls: 6,
+		input_tokens: 16500,
+		cost: 16500,
+		owner_commands: 2,
+		mean_command_cost: 3000,
+	});
+});

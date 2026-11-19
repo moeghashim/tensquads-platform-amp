@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { actionIdOf, canonicalJson, contentHash, type GateStore, ruleCheck } from "../src/index.js";
+import { actionAmount, actionIdOf, canonicalJson, contentHash, type GateStore, ruleCheck } from "../src/index.js";
 
 test("G4: the content hash does not depend on the order of the keys, and changes with the content", async () => {
 	assert.equal(
@@ -60,4 +60,15 @@ test("G3: a public action always needs an approval, and the kind other needs not
 		limit: null,
 	});
 	assert.deepEqual(await ruleCheck(limit20, "other", {}), { needs: "nothing", ruleId: null, limit: null });
+});
+
+test("O1: the amount of an approval request is in millionths of a USD, or null when the action has no amount", () => {
+	assert.equal(actionAmount("money", { amount: 25 }), 25_000_000);
+	assert.equal(actionAmount("money", { amount: "12.5" }), 12_500_000);
+	assert.equal(actionAmount("money", { amount: 0 }), 0);
+	for (const amount of ["", null, undefined, "abc", -1, " "]) {
+		assert.equal(actionAmount("money", { amount }), null, `amount ${JSON.stringify(amount)}`);
+	}
+	assert.equal(actionAmount("money", {}), null);
+	assert.equal(actionAmount("public", { amount: 25 }), null);
 });

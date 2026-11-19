@@ -209,7 +209,7 @@ A requirement is done when its test passes in CI on a pull request. Five require
 
 ### Messages to the owner (task 03)
 
-- **O1.** Each message from Petra to the owner is typed data, not only text. The types are: reply, question, approval request, result, status, and notice of an action that is not confirmed.
+- **O1.** Each message from Petra to the owner is typed data, not only text. The types are: reply, question, approval request, result, status, notice of an action that is not confirmed, approval decided, and question answered. Task 12 added the last two.
 - **O2.** Each type has a zod 4 schema in `packages/contracts`. No type has a field for layout, colour or a component name.
 - **O3.** A test runs the fixed demo on one machine, in CI, and proves that each message that it sends passes its schema.
 
@@ -317,7 +317,7 @@ A requirement is done when its test passes in CI on a pull request. Five require
 - **N2.** Each test in CI uses the fake model. A test proves that the plug-in list of the tests has no real model adapter.
 - **N3.** The key of the model is a secret of the Worker. It is never in the repository, a log, a trail row or an error message.
 - **N4.** Each model call adds one cost row with the units that the model port reports, and with the price of the provider from the price list.
-- **N5.** **[staging]** With the real model, Petra can only use her own tools: start a task, answer the owner, ask the owner, read the memory, tell the status of a task, stop a task. She cannot start an action with money or a public action. The tool "stop a task" can only stop a task of her account.
+- **N5.** **[staging]** With the real model, Petra can only use her own eight tools: start a task, answer the owner, ask the owner, read the memory, tell the status of a task, stop a task, remember a fact, promote a fact. She cannot start an action with money or a public action. The tool "stop a task" can only stop a task of her account.
 - **N6.** When the model fails or is too slow, Petra tries one more time. Then she tells the owner with a fixed message. No message of the owner is lost.
 - **N7.** **[staging]** A model of a different provider replaces the first one with four changes and no more: one row in the plug-in list, one setting, one secret, and one price in the price list. The swap test runs for each provider that has a key, and for two providers or more.
 - **N8.** **[staging]** The cost view for each model gives, for each provider and model: the number of calls, the units, the cost, and the average cost of one command of an owner. The eval report has the pass rate, the cost and the time of each model that was tested, side by side, on the same cases.

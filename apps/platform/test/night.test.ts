@@ -302,3 +302,19 @@ test("M8: at the night job, a conversation older than 90 days is replaced only w
 	await runNight(h, built, "2027-02-19", later(93));
 	assert.equal(renewals.length, 1);
 });
+
+test("N4: the night job writes the cost rows of its model call with the cause night/{date}", async () => {
+	const h = await harness("n4night");
+	const built = h.build();
+	await ownerSays(h, built, "in-1", "Always answer within one hour.", "2026-11-18T09:00:00.000Z");
+	await runNight(h, built, "2026-11-19", "2026-11-19T02:00:00.000Z");
+	const costs = await rows<{ source_ref: string; kind: string; provider: string; model: string }>(
+		h,
+		"SELECT source_ref, kind, provider, model FROM costs WHERE source_ref LIKE 'night/%' ORDER BY source_ref",
+	);
+	assert.equal(costs.length, 2);
+	for (const row of costs) {
+		assert.match(row.source_ref, /^night\/2026-11-18\/model\/[^/]+\/(input|output)$/);
+		assert.deepEqual([row.kind, row.provider, row.model], ["large model", "test", "rule"]);
+	}
+});

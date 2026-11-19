@@ -13,12 +13,12 @@ import { type Gateway, gateway, signPass } from "@tensquads/gateway";
 import { openPetraLoop, type PetraLoop } from "@tensquads/loop";
 import { cleanedFact, memory as makeMemory } from "@tensquads/memory";
 import {
+	type AccountProfile,
 	accountWriter,
 	actionWriter,
 	adminTrailRead,
 	CONVERSATION_KEY,
 	type ConversationState,
-	conversationCommand,
 	costWriter,
 	decisionWriter,
 	memoryWriter,
@@ -27,6 +27,7 @@ import {
 	outbox,
 	type Petra,
 	petra,
+	petraCompletion,
 	petraForgotten,
 	petraTools,
 	taskWork,
@@ -35,9 +36,9 @@ import {
 import { trail } from "@tensquads/trail";
 
 import { refundReasons } from "./decide.js";
-import { type Env, errorResponse, petraConnections, readSettings } from "./env.js";
+import { type Env, errorResponse, petraConnections, readSettings, type Settings, secretOf } from "./env.js";
 import { PLATFORM_NAME } from "./platform-object.js";
-import { petraPlugins } from "./plugins/petra.js";
+import { type PetraBindings, petraPlugins } from "./plugins/petra.js";
 
 // The state of one stream. It stays with the WebSocket when Petra hibernates.
 interface StreamState {
@@ -95,10 +96,12 @@ export class PetraObject extends DurableObject<Env> {
 				paymentHoldMs: settings.paymentHoldMs,
 				shadowDecider: settings.shadowDecider,
 				evals: settings.evals,
+				modelTimeoutMs: settings.model.timeoutMs,
 			};
-			const system = await startSystem(petraPlugins(petraConnections(this.env), bindings));
+			const { system, profile } = await this.system(bindings, settings);
 			const database = system.port(ports.database);
 			const writer = accountWriter(database, accountId);
+			const petraModel = system.port(ports.petraModel);
 			const objectStore = system.port(ports.objectStore);
 			// Each trail row goes through the trail package: a large item goes to R2 (requirements T5 and T7).
 			const rawTasks = taskWriter(database, accountId);
@@ -115,7 +118,14 @@ export class PetraObject extends DurableObject<Env> {
 			const costRows = costWriter(database, accountId);
 			const costBook = makeCosts({ store: costRows, now });
 			// The memory holds the rules. Petra writes its rows (requirement P2).
-			const memory = makeMemory({ store: memoryWriter(database, accountId), tasks, tell: out.tell, model });
+			// The night job of the memory uses the model of Petra (task 12).
+			const memory = makeMemory({
+				store: memoryWriter(database, accountId),
+				tasks,
+				tell: out.tell,
+				model: petraModel,
+				modelCost: (cause, answer) => costBook.modelCall({ cause, taskId: null }, answer),
+			});
 			// The decision points of Petra and the gate (task 09). The shadow decider never acts (requirement Q5).
 			const decisionRows = decisionWriter(database, accountId);
 			const decide = decisions({
@@ -158,21 +168,23 @@ export class PetraObject extends DurableObject<Env> {
 				checkAction: (commandId, actionId) => actionGate.checkJob(commandId, actionId),
 				memory,
 				outcomes: decisionRows,
+				// The versions of each attempt record the provider and the model of Petra (task 12).
+				...(petraModel.id
+					? { versions: { petraProvider: petraModel.id.provider, petraModel: petraModel.id.model } }
+					: {}),
 			});
 			const tools = petraTools({ writer, decisions: decide, tasks, work, outbox: out, now, memory });
 			const loop = await openPetraLoop({
 				storage,
 				tools,
-				complete: async ({ messages }) => {
-					const answer = await model.complete({ messages, tools: tools.map((tool) => tool.name) });
-					// A model call of Petra in a command has the key of the command (section 7.1, requirement S1).
-					const commandId = conversationCommand(messages);
-					if (commandId) await costBook.modelCall({ cause: `cmd/${commandId}`, taskId: null }, answer);
-					// An answer with no tool call ends the turn of Petra. Its cost rows are written. The runner of evals
-					// reads this line, because the command is done before this last model call (task 11).
-					if (commandId && answer.toolCalls.length === 0) console.log(`petra: turn ended ${commandId}`);
-					return answer;
-				},
+				// The instructions, the language, one more try, the cost rows and the tool input (requirements N4, N6, N9).
+				complete: petraCompletion({
+					model: petraModel,
+					tools,
+					costs: costBook,
+					accountLanguage: profile.language,
+					log: (line) => console.log(line),
+				}),
 				wakeChanged: (at) => void this.arm(at),
 				// Petra removes the text of each forgotten fact from her own model requests (requirement M9). She keeps
 				// the text of a deleted fact until her next new conversation (requirement M8).
@@ -194,7 +206,7 @@ export class PetraObject extends DurableObject<Env> {
 			const core = petra({
 				writer,
 				storage,
-				model,
+				model: petraModel,
 				now,
 				send,
 				outbox: out,
@@ -225,6 +237,29 @@ export class PetraObject extends DurableObject<Env> {
 			return { core, writer, tasks, loop, gw, adminTrail };
 		})();
 		return this.started;
+	}
+
+	// The model profile of the account selects the row of the model of Petra (decision D30). The first list only
+	// reads the account. The account row has no secret.
+	private async system(bindings: PetraBindings, settings: Settings) {
+		const first = await startSystem(petraPlugins(petraConnections(this.env), bindings));
+		let profile: AccountProfile;
+		try {
+			profile = await accountWriter(first.port(ports.database), bindings.accountId).profile();
+		} catch (error) {
+			// The first system has a database connection. It stops before the error goes on.
+			await first.stop();
+			throw error;
+		}
+		if (profile.modelProfile !== "real") return { system: first, profile };
+		const { petraModel: model, baseUrl } = settings.model;
+		const secret = (name: string) => secretOf(this.env, name);
+		const realModel = { model, secret, ...(baseUrl ? { baseUrl } : {}) };
+		await first.stop();
+		return {
+			system: await startSystem(petraPlugins(petraConnections(this.env), { ...bindings, realModel })),
+			profile,
+		};
 	}
 
 	// The id of the conversation of Petra after a renew, or nothing for the root conversation.

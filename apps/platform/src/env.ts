@@ -1,14 +1,16 @@
 // The bindings of the Platform Worker (wrangler.jsonc). The database URLs and the two keys are secrets.
-import type { SqlConnections } from "@tensquads/core";
+import type { Principal, SqlConnections } from "@tensquads/core";
 import type { JobMessage } from "@tensquads/petra";
 
 import { type EvalSettings, type EvalVars, evalSettings, SettingError } from "./eval-settings.js";
+import { identityTokens, type ModelVars, modelSettings, type PetraModelSettings } from "./model-settings.js";
 import type { PetraObject } from "./petra-object.js";
 import type { PlatformDurableObject } from "./platform-object.js";
 import type { ShadowDecider } from "./plugins/petra.js";
 
 // The settings of an eval Worker are in EvalVars (task 11).
-export interface Env extends EvalVars {
+// The settings of the model of Petra are in ModelVars (task 12).
+export interface Env extends EvalVars, ModelVars {
 	PETRA: DurableObjectNamespace<PetraObject>;
 	PLATFORM: DurableObjectNamespace<PlatformDurableObject>;
 	// The R2 bucket of the copies of the journal and, later, of the drafts (section 7.4).
@@ -39,6 +41,10 @@ export interface Env extends EvalVars {
 	CREDIT_VALUE_MICROS?: string;
 	// A request for a sandbox that no launcher took in this time is stuck (section 7.6).
 	LAUNCHER_TAKE_TIME_MS?: string;
+	// On staging: the table of tokens of the identity, as JSON (task 12). A secret.
+	IDENTITY_TOKENS?: string;
+	// The key of each model provider, for example OPENAI_API_KEY (requirement N3). Each one is a secret.
+	[key: `${string}_API_KEY`]: string | undefined;
 }
 
 export interface Settings {
@@ -55,6 +61,8 @@ export interface Settings {
 	creditValueMicros: number;
 	takeTimeMs: number;
 	evals: EvalSettings;
+	model: PetraModelSettings;
+	identityTokens: Record<string, Principal> | undefined;
 }
 
 export { SettingError };
@@ -101,7 +109,15 @@ export function readSettings(env: Env): Settings {
 		creditValueMicros: milliseconds(env, "CREDIT_VALUE_MICROS", "millionths of a US dollar"),
 		takeTimeMs: milliseconds(env, "LAUNCHER_TAKE_TIME_MS"),
 		evals: evalSettings(env),
+		model: modelSettings(env),
+		identityTokens: identityTokens(env.IDENTITY_TOKENS),
 	};
+}
+
+// One secret of the Worker by its name, for the key of a model provider (requirement N3).
+export function secretOf(env: Env, name: string): string | undefined {
+	const value = (env as unknown as Record<string, unknown>)[name];
+	return typeof value === "string" && value !== "" ? value : undefined;
 }
 
 // A setting that can be missing. Its value is 0 or a positive whole number of milliseconds.

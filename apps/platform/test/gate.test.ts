@@ -31,6 +31,10 @@ test("G2: a refund of $15 inside a limit of $20 goes out with no approval", asyn
 	assert.equal(s.paid.length, 1);
 	const [request] = await s.messages("approval_request");
 	assert.equal(request?.type === "approval_request" && request.limit, 20_000_000);
+	// The request has the amount of the action, its bot and its task, for the approval card (task 12).
+	assert.equal(request?.type === "approval_request" && request.amount, 25_000_000);
+	assert.equal(request?.type === "approval_request" && request.bot, "test-bot");
+	assert.equal(request?.type === "approval_request" && request.taskId, s.taskId);
 });
 
 test("K3 and G2: a refund inside the limit goes out with no approval, and the trail records the rule that matched", async () => {
@@ -81,6 +85,9 @@ test("G3: a public action always needs the approval of the owner, also with a mo
 		contentHash: await contentHash("send_reply", content),
 		rule: null,
 		limit: null,
+		amount: null,
+		bot: "test-bot",
+		taskId: s.taskId,
 	});
 	assert.equal((await s.h.tasks.task(s.taskId))?.status, "waiting for the owner");
 	assert.equal((await actionRow(s))?.status, "pending");

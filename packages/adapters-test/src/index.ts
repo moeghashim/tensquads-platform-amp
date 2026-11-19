@@ -2,7 +2,7 @@
 export { type CheckRule, ruleChecker } from "./checker-model.js";
 export { type FixedDeciderOptions, fixedDecider, noShadowDecider } from "./decider.js";
 export { evalOwnerRef, evalOwnerToken, TEST_PRINCIPALS, TEST_TOKENS, testIdentity } from "./identity.js";
-export { echoModel, type ScriptedAnswer, scriptedModel } from "./model.js";
+export { echoModel, petraTestModel, type ScriptedAnswer, scriptedModel } from "./model.js";
 export { modelDecider } from "./model-decider.js";
 export { RULE_SCRIPTS, type RuleScript, ruleModel } from "./rule-model.js";
 export { localSandbox } from "./sandbox.js";

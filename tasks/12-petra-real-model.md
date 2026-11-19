@@ -10,7 +10,7 @@ This task needs a staging Worker for its tests that are marked [staging]. If tas
 
 ## Build
 
-1. The instructions of Petra, from the plan, Part 4: who she is, her decision sequence, what she does not do. Her six tools stay the same.
+1. The instructions of Petra, from the plan, Part 4: who she is, her decision sequence, what she does not do. Her eight tools stay the same (task 08 added "remember a fact" and "promote a fact").
 2. A real adapter for the model port, `packages/adapters-model`. The provider and the name of the model are settings, not code. If the report of task 01 says that the model layer of pi runs in the Workers runtime, build one adapter on it. If not, build one small adapter for each provider.
 3. The model profile of an account (decision D30): "real" selects this adapter, and "test" selects the fake model. The plug-in list of the tests has no real adapter (N2).
 4. The key of the model is a secret of the Worker. It is not in the repository, in a log, in a trail row or in an error message (N3).

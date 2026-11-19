@@ -51,9 +51,20 @@ export interface ModelToolCall {
 	input: unknown;
 }
 
+// The definition of one tool for a real model: its name, its description and the JSON schema of its input.
+export interface ModelToolDefinition {
+	name: string;
+	description: string;
+	parameters: Record<string, unknown>;
+}
+
 export interface ModelRequest {
 	messages: readonly ModelMessage[];
 	tools: readonly string[];
+	// The definitions of the tools. A real adapter gives them to the provider. A test adapter can ignore them.
+	toolDefinitions?: readonly ModelToolDefinition[];
+	// The caller stops the request with this signal, for example after a time limit (requirement N6).
+	signal?: AbortSignal;
 }
 
 export interface ModelAnswer {
@@ -67,6 +78,8 @@ export interface ModelAnswer {
 }
 
 export interface Model {
+	// The provider and the model that the adapter uses, when the adapter knows them before a call.
+	readonly id?: { provider: string; model: string };
 	complete(request: ModelRequest): Promise<ModelAnswer>;
 }
 
@@ -203,6 +216,8 @@ export const ports = {
 	objectStore: portKey<ObjectStore>("object store"),
 	queue: portKey<Queue>("queue"),
 	model: portKey<Model>("model"),
+	// The model of Petra: her loop, her night job and her model decider (decisions D24 and D30). The bots use "model".
+	petraModel: portKey<Model>("petra model"),
 	checkerModel: portKey<CheckerModel>("checker model"),
 	sandbox: portKey<Sandbox>("sandbox"),
 	decider: portKey<Decider>("decider"),

@@ -1,0 +1,36 @@
+{
+	"id": "REAL-P2",
+	"source": "Plan Part 12, case P2, in Arabic. Adapted to the test bot: the real model of Petra reads the request.",
+	"tags": [
+		"petra",
+		"real",
+		"arabic"
+	],
+	"input": [
+		{
+			"type": "OwnerMessage",
+			"text": "أصلح أشيائي على الإنترنت"
+		}
+	],
+	"expected": {
+		"text": "Petra asks one clear question before she starts any task. No bot runs, and no credits are taken.",
+		"checks": [
+			{
+				"check": "messages",
+				"type": "question",
+				"count": 1
+			},
+			{
+				"check": "tasks",
+				"count": 0
+			},
+			{
+				"check": "credits taken",
+				"credits": 0
+			}
+		]
+	},
+	"grader": {
+		"kind": "code"
+	}
+}

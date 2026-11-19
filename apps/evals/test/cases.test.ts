@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { POINTS } from "@tensquads/decisions";
 
 import { loadCases, loadDeciderItems, loadVersions } from "../src/files.js";
+import { loadRealCases } from "../src/real.js";
 
 test("E1: the five cases of the plan are files in evals/cases; each one parses and says that it was adapted", () => {
 	const cases = loadCases();
@@ -47,4 +48,20 @@ test("E5: the labelled messages have 8 messages for each yes or no point, and ha
 		assert.ok(own.filter((item) => item.language === "ar").every((item) => /\p{Script=Arabic}/u.test(item.message)));
 	}
 	assert.ok(items.filter((item) => item.point === "reason-in-rule").every((item) => item.rule !== undefined));
+});
+
+test("N8: the ten cases of the real model are in evals/cases/real; two are in Arabic, and the fake run skips them", () => {
+	const cases = loadRealCases();
+	assert.deepEqual(
+		cases.map((item) => item.id),
+		["REAL-J3", "REAL-J4", "REAL-J5", "REAL-J6", "REAL-J7", "REAL-P2", "REAL-P3", "REAL-P4", "REAL-P5", "REAL-P6"],
+	);
+	const arabic = cases.filter((item) =>
+		item.input.some((step) => step.type === "OwnerMessage" && /\p{Script=Arabic}/u.test(step.text)),
+	);
+	assert.deepEqual(
+		arabic.map((item) => item.id),
+		["REAL-J3", "REAL-P2"],
+	);
+	assert.ok(!loadCases().some((item) => item.id.startsWith("REAL-")));
 });

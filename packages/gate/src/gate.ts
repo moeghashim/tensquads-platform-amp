@@ -6,7 +6,7 @@ import type { ActionAnswer, BotDefinition, Command } from "@tensquads/contracts"
 import type { SendOutcome } from "@tensquads/core";
 
 import { actionIdOf, contentHash } from "./hash.js";
-import { type RuleCheck, ruleCheck } from "./rules.js";
+import { actionAmount, type RuleCheck, ruleCheck } from "./rules.js";
 import { contentProblem, describeAction, providerOf, type Services, sendAction, serviceStatus } from "./services.js";
 import type { ActionKind, ActionRequest, ActionRow, GateDeps } from "./types.js";
 
@@ -66,11 +66,13 @@ export function gate(deps: GateDeps): Gate {
 		return stored;
 	}
 
-	async function replyTo(taskId: string): Promise<string> {
+	async function taskOf(taskId: string) {
 		const task = await tasks.task(taskId);
 		if (!task) throw new Error(`The task ${taskId} does not exist.`);
-		return task.brief.replyTo;
+		return task;
 	}
+
+	const replyTo = async (taskId: string): Promise<string> => (await taskOf(taskId)).brief.replyTo;
 
 	async function queueCheck(actionId: string, attemptNo: number, checkNo: number): Promise<void> {
 		const command: Command = {
@@ -138,9 +140,10 @@ export function gate(deps: GateDeps): Gate {
 	async function askOwner(row: ActionRow, terms: { ruleId: string | null; limit: number | null }) {
 		const at = deps.now();
 		await store.addApproval({ ...keyOf(row), contentHash: row.contentHash, ...terms, at });
+		const task = await taskOf(row.taskId);
 		await deps.tell({
 			sourceRef: `approval/${idOf(row)}/${row.contentHash}`,
-			channel: await replyTo(row.taskId),
+			channel: task.brief.replyTo,
 			taskId: row.taskId,
 			body: {
 				type: "approval_request",
@@ -150,6 +153,9 @@ export function gate(deps: GateDeps): Gate {
 				contentHash: row.contentHash,
 				rule: terms.ruleId,
 				limit: terms.limit,
+				amount: actionAmount(row.kind, row.content),
+				bot: task.bot,
+				taskId: row.taskId,
 			},
 		});
 		await tasks.setTaskStatus({ taskId: row.taskId, status: "waiting for the owner", at });

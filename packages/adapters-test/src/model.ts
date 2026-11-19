@@ -73,3 +73,15 @@ export function echoModel(): Plugin {
 		},
 	};
 }
+
+// The test row of the model of Petra: the model port of the list. A list of the tests has no real adapter (N2).
+export function petraTestModel(): Plugin {
+	return {
+		name: "petra-model-test",
+		provides: [ports.petraModel],
+		needs: [ports.model],
+		apply: (ctx) => {
+			ctx.provide(ports.petraModel, ctx.port(ports.model));
+		},
+	};
+}

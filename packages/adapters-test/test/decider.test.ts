@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { type DeciderQuestion, type Plugin, ports, startSystem } from "@tensquads/core";
 import { deciderContract } from "@tensquads/core/contract-tests";
 
-import { fixedDecider, modelDecider, noShadowDecider, ruleModel, scriptedModel } from "../src/index.js";
+import { fixedDecider, modelDecider, noShadowDecider, petraTestModel, ruleModel, scriptedModel } from "../src/index.js";
 
 deciderContract("decider-fixed", async () => (await startSystem([fixedDecider()])).port(ports.decider));
 deciderContract("decider-fixed with an answer", async () =>
@@ -110,4 +110,15 @@ test("Q4: decider-model throws when the model answer is not the JSON format", as
 		const decider = (await startSystem([scriptedModel([{ text }]), modelDecider()])).port(ports.decider);
 		await assert.rejects(decider.ask(questions), /decider/i, text);
 	}
+});
+
+test("N1: for a real account, decider-model asks the model of Petra, and reads a JSON answer in a code block", async () => {
+	const seen: string[] = [];
+	const text = `\`\`\`json\n${JSON.stringify({ answers: [{ id: "q-1", answer: "yes", probability: 0.9 }] })}\n\`\`\``;
+	const decider = (
+		await startSystem([recordingModel(text, seen), petraTestModel(), modelDecider({ port: ports.petraModel })])
+	).port(ports.decider);
+	const [answer] = await decider.ask(questions.slice(0, 1));
+	assert.equal(answer?.answer, "yes");
+	assert.equal(seen.length, 1);
 });

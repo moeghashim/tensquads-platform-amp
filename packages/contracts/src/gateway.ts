@@ -69,6 +69,10 @@ export const attemptVersions = z
 		botVersion: z.string(),
 		provider: z.string(),
 		model: z.string(),
+		// The provider and the model of Petra when she started the attempt (task 12). An attempt of a version before
+		// task 12 has none.
+		petraProvider: z.string().optional(),
+		petraModel: z.string().optional(),
 	})
 	.strict();
 

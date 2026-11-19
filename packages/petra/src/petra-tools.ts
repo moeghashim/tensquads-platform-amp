@@ -1,6 +1,8 @@
 // The tools of Petra (docs/ARCHITECTURE.md, section 4.6), and the two memory tools of the owner (task 08). The loop declares each one replay: "safe".
 // Each tool writes by a key from its command, and reads its decision rows first, so a second run changes nothing.
-// The input of each tool has the command id, the channel and the text of the owner message.
+// The input of each tool has the command id, the channel and the text of the owner message. The code puts them in
+// the input from the current command, never from the answer of the model (petra-model.ts). Only the tools that answer
+// or ask the owner take their text from the model.
 import { testBot } from "@tensquads/bots";
 import type { BotDefinition } from "@tensquads/contracts";
 
@@ -13,6 +15,8 @@ import type { TaskReader, TaskRow, TaskWriter } from "./task-writer.js";
 export interface PetraToolDefinition {
 	name: string;
 	description: string;
+	// The JSON schema of the input that the model gives. The code adds the command id, the channel and the text.
+	parameters: Record<string, unknown>;
 	execute(input: Record<string, unknown>): Promise<string>;
 }
 
@@ -28,7 +32,24 @@ export const PETRA_TOOLS = {
 } as const;
 
 // The bots that can start a task. Petra is not in the list. The decision point "which bot" chooses one.
-const TASK_BOTS: readonly BotDefinition[] = [testBot];
+export const TASK_BOTS: readonly BotDefinition[] = [testBot];
+
+// The input of a tool with no field from the model.
+const NO_INPUT = { type: "object", properties: {}, additionalProperties: false };
+
+// The input of a tool that sends a text of the model to the owner.
+const TEXT_INPUT = {
+	type: "object",
+	properties: { text: { type: "string", description: "The text for the owner, in plain text." } },
+	required: ["text"],
+	additionalProperties: false,
+};
+
+// The tools that only read. They do not mark the command done, so the model must answer the owner after them.
+export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([PETRA_TOOLS.readMemory]);
+
+// The tools that take their text from the model. Each other tool gets the text of the owner message.
+export const MODEL_TEXT_TOOLS: ReadonlySet<string> = new Set([PETRA_TOOLS.answerOwner, PETRA_TOOLS.askOwner]);
 
 // The answer of the point "is this message for a task that runs" when the message is for no task.
 const NEW_TASK = "new task";
@@ -262,6 +283,7 @@ export function petraTools(deps: PetraToolsDeps): PetraToolDefinition[] {
 	const tool = (name: string, description: string, run: (input: ToolInput) => Promise<string>) => ({
 		name,
 		description,
+		parameters: MODEL_TEXT_TOOLS.has(name) ? TEXT_INPUT : NO_INPUT,
 		async execute(raw: Record<string, unknown>) {
 			const input = inputOf(raw);
 			const output = await run(input);
@@ -272,7 +294,11 @@ export function petraTools(deps: PetraToolsDeps): PetraToolDefinition[] {
 	});
 
 	return [
-		tool(PETRA_TOOLS.startTask, "Start a task of a bot for the message of the owner.", startTask),
+		tool(
+			PETRA_TOOLS.startTask,
+			"Start a task of a bot for the message of the owner, or give the message to the task that runs. The code checks the credits.",
+			startTask,
+		),
 		tool(PETRA_TOOLS.answerOwner, "Answer the owner with a text.", async (input) => {
 			await reply(input, input.text);
 			return "The answer is sent.";
@@ -288,12 +314,21 @@ export function petraTools(deps: PetraToolsDeps): PetraToolDefinition[] {
 		{
 			name: PETRA_TOOLS.readMemory,
 			description: "Read the memory of the account.",
+			parameters: NO_INPUT,
 			// The memory comes in a later task. The tool only reads, so it does not mark a command.
 			execute: async () => "The memory has no facts yet.",
 		},
 		tool(PETRA_TOOLS.taskStatus, "Tell the status of a task.", taskStatus),
-		tool(PETRA_TOOLS.stopTask, "Stop a task of the owner.", stopTask),
-		tool(PETRA_TOOLS.rememberFact, "Keep a fact of the owner on a page of the memory.", rememberFact),
-		tool(PETRA_TOOLS.promoteFact, "Put a fact into the core of the memory.", promoteFact),
+		tool(PETRA_TOOLS.stopTask, "Stop a task of the owner. The message of the owner can name the task.", stopTask),
+		tool(
+			PETRA_TOOLS.rememberFact,
+			'Keep a fact of the owner on a page of the memory. The owner writes it as "remember on <page>: <text>".',
+			rememberFact,
+		),
+		tool(
+			PETRA_TOOLS.promoteFact,
+			'Put a fact into the core of the memory. The owner writes it as "promote fact <id>".',
+			promoteFact,
+		),
 	];
 }

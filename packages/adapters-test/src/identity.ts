@@ -24,16 +24,27 @@ const byToken = new Map<string, Principal>([
 const EVAL_ACCOUNT = "eval-";
 const EVAL_TOKEN = "eval-owner:";
 
-export const evalOwnerToken = (accountId: string): string => `${EVAL_TOKEN}${accountId}`;
+// On staging (a table of tokens), the eval token starts with the token of a super admin and a space, because a
+// person can guess the plain eval token of a public Worker.
+export const evalOwnerToken = (accountId: string, adminToken?: string): string =>
+	`${adminToken === undefined ? "" : `${adminToken} `}${EVAL_TOKEN}${accountId}`;
 export const evalOwnerRef = (accountId: string): string => `owner-${accountId}`;
 
-function evalOwner(token: string): Principal | undefined {
-	const accountId = token.startsWith(EVAL_TOKEN) ? token.slice(EVAL_TOKEN.length) : "";
+function evalOwner(token: string, known: ReadonlyMap<string, Principal> | undefined): Principal | undefined {
+	const space = token.indexOf(" ");
+	if (known !== undefined && (space < 0 || known.get(token.slice(0, space))?.kind !== "super_admin")) return undefined;
+	const rest = known === undefined ? token : token.slice(space + 1);
+	const accountId = rest.startsWith(EVAL_TOKEN) ? rest.slice(EVAL_TOKEN.length) : "";
 	if (!accountId.startsWith(EVAL_ACCOUNT)) return undefined;
 	return { kind: "owner", ownerId: evalOwnerRef(accountId), accountId };
 }
 
-export function testIdentity(options: { evalOwners?: boolean } = {}): Plugin {
+// With tokens (on staging, from the secret IDENTITY_TOKENS), the identity knows only those tokens and no test token.
+export function testIdentity(
+	options: { evalOwners?: boolean; tokens?: Readonly<Record<string, Principal>> } = {},
+): Plugin {
+	const table = options.tokens ? new Map(Object.entries(options.tokens)) : undefined;
+	const known = table ?? byToken;
 	return {
 		name: "identity-test",
 		provides: [ports.identity],
@@ -41,7 +52,7 @@ export function testIdentity(options: { evalOwners?: boolean } = {}): Plugin {
 		apply: (ctx) => {
 			ctx.provide(ports.identity, {
 				whoIs: async (token) => {
-					const principal = byToken.get(token) ?? (options.evalOwners ? evalOwner(token) : undefined);
+					const principal = known.get(token) ?? (options.evalOwners ? evalOwner(token, table) : undefined);
 					return principal ? { ...principal } : undefined;
 				},
 			});

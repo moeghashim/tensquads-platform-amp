@@ -2,7 +2,7 @@
 // Each step writes by a key from its cause. A step that runs again finds its rows and changes nothing.
 // The Durable Object class gives the ports. This module has no Cloudflare import.
 import { testBot } from "@tensquads/bots";
-import type { BotDefinition, Brief, Command, PassClaims, TaskResult } from "@tensquads/contracts";
+import type { AttemptVersions, BotDefinition, Brief, Command, PassClaims, TaskResult } from "@tensquads/contracts";
 import type { Queue, Sandbox } from "@tensquads/core";
 
 import type { ActionWriter, StoredAction } from "./action-writer.js";
@@ -45,6 +45,8 @@ export interface TaskWorkDeps {
 	memory: TaskMemory;
 	// The outcomes of the decisions: what the owner did with a thing that a decision led to (requirement Q6).
 	outcomes: Pick<DecisionWriter, "addOutcome">;
+	// The provider and the model of Petra, for the versions of each new attempt (task 12).
+	versions?: Partial<AttemptVersions>;
 }
 
 // The part of the memory that the task work uses (docs/ARCHITECTURE.md, section 4.5).
@@ -90,6 +92,11 @@ export interface NewTask {
 export type StartOutcome = "started" | "no credits" | "ended";
 export type CancelOutcome = "cancelled" | "no task" | "ended";
 
+// A command of the owner that changed a task. The channel is the channel of the task.
+export interface Applied {
+	channel: string;
+}
+
 export interface TaskWork {
 	// The tool "start a task" (section 4.6). One command starts one task or none. The task id is the command id.
 	startTask(task: NewTask): Promise<StartOutcome>;
@@ -98,7 +105,8 @@ export interface TaskWork {
 	cancel(taskId: string, cause: CancelCause): Promise<CancelOutcome>;
 	sandboxExited(command: Extract<Command, { type: "SandboxExited" }>): Promise<void>;
 	checkTask(commandId: string, taskId: string): Promise<void>;
-	ownerAnswer(command: Extract<Command, { type: "OwnerAnswer" }>): Promise<boolean>;
+	// Returns the channel of the task when the answer was applied, or undefined when it changed nothing.
+	ownerAnswer(command: Extract<Command, { type: "OwnerAnswer" }>): Promise<Applied | undefined>;
 	// After a result that stands (section 4.2).
 	afterResult(claims: PassClaims, result: TaskResult): Promise<void>;
 	// Sends the request again for each open attempt that has no start (sections 3.6 and 7.3).
@@ -108,7 +116,10 @@ export interface TaskWork {
 	// The command SetRule writes one rules row, with the command id as its key.
 	setRule(command: Extract<Command, { type: "SetRule" }>): Promise<void>;
 	// The command ApprovalDecision (section 4.4, requirements G4 and G10).
-	approvalDecision(command: Extract<Command, { type: "ApprovalDecision" }>): Promise<void>;
+	// Returns the stored decision and the channel of the task when the decision was applied (task 12).
+	approvalDecision(
+		command: Extract<Command, { type: "ApprovalDecision" }>,
+	): Promise<(Applied & { decision: "approve" | "reject" }) | undefined>;
 	// The "check action" job (section 9).
 	checkAction(commandId: string, actionId: string): Promise<void>;
 }
@@ -200,7 +211,7 @@ export function taskWork(deps: TaskWorkDeps): TaskWork {
 	}
 
 	async function newAttempt(task: TaskRow, causeRef: string, reason: AttemptRow["reason"]): Promise<void> {
-		const attemptNo = await tasks.addAttempt({ taskId: task.id, causeRef, reason, versions: {} });
+		const attemptNo = await tasks.addAttempt({ taskId: task.id, causeRef, reason, versions: deps.versions ?? {} });
 		await requestSandbox(task, attemptNo);
 	}
 
@@ -359,7 +370,7 @@ export function taskWork(deps: TaskWorkDeps): TaskWork {
 			taskId: task.id,
 			causeRef: commandId,
 			reason: "after an approval",
-			versions: {},
+			versions: deps.versions ?? {},
 		});
 		await tasks.setTaskStatus({ taskId: task.id, status: "running", at: deps.now() });
 		await requestSandbox(task, attemptNo);
@@ -394,7 +405,7 @@ export function taskWork(deps: TaskWorkDeps): TaskWork {
 				taskId: task.id,
 				causeRef: newTask.commandId,
 				reason: "first",
-				versions: {},
+				versions: deps.versions ?? {},
 			});
 			await requestSandbox(task, attemptNo);
 			return "started";
@@ -468,9 +479,10 @@ export function taskWork(deps: TaskWorkDeps): TaskWork {
 			});
 			const taskId = await tasks.questionTask(command.questionId);
 			const task = taskId ? await openTask(taskId) : undefined;
-			if (!task) return false;
-			if (await continueCause(task, command.commandId)) return true;
-			if (task.status !== "waiting for the owner") return false;
+			if (!task) return undefined;
+			const applied = { channel: task.brief.replyTo };
+			if (await continueCause(task, command.commandId)) return applied;
+			if (task.status !== "waiting for the owner") return undefined;
 			// The decision goes to the runner as a signal, with the question id as its key (requirement L6).
 			await tasks.addDecision({
 				sourceRef: answerRef(command.questionId),
@@ -496,12 +508,12 @@ export function taskWork(deps: TaskWorkDeps): TaskWork {
 				taskId: task.id,
 				causeRef: command.commandId,
 				reason: "after an answer",
-				versions: {},
+				versions: deps.versions ?? {},
 			});
 			// The status is "running" before the request, so the pass of the new attempt is accepted.
 			await tasks.setTaskStatus({ taskId: task.id, status: "running", at: deps.now() });
 			await requestSandbox(task, attemptNo);
-			return true;
+			return applied;
 		},
 
 		async afterResult(claims, result) {
@@ -568,9 +580,17 @@ export function taskWork(deps: TaskWorkDeps): TaskWork {
 		async approvalDecision(command) {
 			const action = await deps.actions.actionById(command.approvalId);
 			const task = action ? await tasks.task(action.taskId) : undefined;
-			if (!action || !task) return;
+			if (!action || !task) return undefined;
 			const nothing = await applyDecision(task, action, command);
-			if (nothing) await tellStatus(task, command.commandId, nothing);
+			if (nothing) {
+				await tellStatus(task, command.commandId, nothing);
+				return undefined;
+			}
+			// The stored decision. Only this command decided it, so a second run gives the same message.
+			const stored = await deps.actions.approval(action.taskId, action.toolCallId, action.contentHash);
+			if (stored?.decidedBy !== command.commandId) return undefined;
+			const decision = stored.status === "approved" ? "approve" : "reject";
+			return { channel: task.brief.replyTo, decision };
 		},
 
 		checkAction: (commandId, actionId) => deps.checkAction(commandId, actionId),

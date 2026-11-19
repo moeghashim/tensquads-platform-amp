@@ -1,0 +1,34 @@
+{
+	"id": "REAL-P5",
+	"source": "Plan Part 12, case P5. Adapted to the test bot: the goal \"always wrong\" makes each result fail its check, and the task stops at its limit of turns.",
+	"tags": [
+		"petra",
+		"real"
+	],
+	"input": [
+		{
+			"type": "OwnerMessage",
+			"text": "Start a task for the test bot: tell me the shop hours. This answer is always wrong."
+		}
+	],
+	"expected": {
+		"text": "The owner is told that the task stopped at its limit, and the credits go back.",
+		"checks": [
+			{
+				"check": "tasks",
+				"count": 1
+			},
+			{
+				"check": "task status",
+				"status": "done"
+			},
+			{
+				"check": "credits taken",
+				"credits": 0
+			}
+		]
+	},
+	"grader": {
+		"kind": "code"
+	}
+}
