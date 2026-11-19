@@ -84,3 +84,20 @@ test("G11: the append script appends one line in each turn, then reads the file"
 	const third = await complete([brief("append 2 lines"), result("x"), result("y")]);
 	assert.deepEqual(third.toolCalls, [{ id: "call-3", name: "read_file", input: { path: "notes.txt" } }]);
 });
+
+test("K3: 'wrong then right' marks the first answer wrong and the answer after it right; 'always wrong' marks each one", async () => {
+	const first = await complete([brief("wrong then right")]);
+	assert.match(first.text, /^WRONG: Result: wrong then right/);
+	const second = await complete([
+		brief("wrong then right"),
+		{ role: "assistant", content: first.text },
+		{ role: "user", content: "Checker model: The result is marked wrong." },
+	]);
+	assert.match(second.text, /^Result: wrong then right/);
+	const again = await complete([
+		brief("always wrong"),
+		{ role: "assistant", content: "WRONG: Result: always wrong" },
+		{ role: "user", content: "Checker model: The result is marked wrong." },
+	]);
+	assert.match(again.text, /^WRONG: /);
+});

@@ -727,3 +727,14 @@ Append-only learning log for commits and deploys. Add new entries only at the en
   - package.json
   - packages
   - scripts
+## 2026-11-19T06:34:51.487Z
+- Trigger: commit
+- Learning: Only a result with the stop success goes to the check. A stop at a limit or a question goes to Petra with no check, or a failed check hides the stop. The checker is joined in the app, as the gate is, because of rule C2.
+- Context: feat(checker): check each result before it goes to the owner
+- Branch: 06-checker
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - packages
+  - apps
+  - docs/evidence/06-checker
+  - package-lock.json

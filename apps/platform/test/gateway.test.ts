@@ -6,7 +6,7 @@ import test from "node:test";
 import { testBot } from "@tensquads/bots";
 import { attemptVersions, type Brief, type GatewayCall, type PassClaims, type TaskResult } from "@tensquads/contracts";
 import type { Database, ModelAnswer, ModelRequest } from "@tensquads/core";
-import { type GatewayAnswer, gateway } from "@tensquads/gateway";
+import { type GatewayAnswer, gateway, type ResultChecker } from "@tensquads/gateway";
 import { actionWriter, platformWriter, taskWriter } from "@tensquads/petra";
 
 import { testDatabase, uniqueId } from "./db.js";
@@ -57,7 +57,10 @@ async function newAccount(database: Database, prefix: string): Promise<string> {
 }
 
 // One account with one task of the test bot and its first attempt, as "start a task" writes them (section 4.6).
-async function setup(model?: (request: ModelRequest) => Promise<ModelAnswer>): Promise<Setup> {
+async function setup(
+	model?: (request: ModelRequest) => Promise<ModelAnswer>,
+	check: ResultChecker = async () => ({ verdict: "stands", reason: "The double always says stands." }),
+): Promise<Setup> {
 	const database = testDatabase();
 	const accountId = await newAccount(database, "gw");
 	const tasks = taskWriter(database, accountId);
@@ -93,13 +96,13 @@ async function setup(model?: (request: ModelRequest) => Promise<ModelAnswer>): P
 				};
 			},
 		},
-		check: async () => ({ verdict: "stands", reason: "The double always says stands." }),
+		check,
 		storage: memoryMap(),
 		now: () => now,
 		workerCommit: "worker-abc",
 		// Petra ends the task after a result that stands. Task work does more. This test reads the status only.
 		settle: async ({ taskId }, result) => {
-			if (result.stop === "success") await tasks.setTaskStatus({ taskId, status: "done", stop: "success", at: now });
+			await tasks.setTaskStatus({ taskId, status: "done", stop: result.stop, at: now });
 		},
 		noteCall: async () => undefined,
 	});
@@ -335,6 +338,30 @@ test("L2: a result that stands ends the task with the stop name success", async 
 	const task = await tasks.task(taskId);
 	assert.deepEqual({ status: task?.status, stop: task?.stop }, { status: "done", stop: "success" });
 	assert.equal(await tasks.countTrail(taskId, "check"), 1);
+});
+
+test("K1: only a result with the stop success goes to the check; a stop at a limit or a question goes to Petra", async () => {
+	let checks = 0;
+	const { gw, tasks, taskId, claims } = await setup(undefined, async () => {
+		checks += 1;
+		return { verdict: "continue", reason: "The check fails each result." };
+	});
+	await gw.call(claims(), startCall(1, "runner-a"));
+	const base = { evidence: [], proposedFacts: [], notes: [] };
+	const success: TaskResult = { stop: "success", answer: "9", ...base };
+	assert.deepEqual(await gw.call(claims(), { call: "result", callNo: 2, runnerId: "runner-a", result: success }), {
+		verdict: "continue",
+		reason: "The check fails each result.",
+	});
+	assert.equal(checks, 1);
+	const limit: TaskResult = { stop: "max_turns", answer: "", ...base };
+	assert.deepEqual(await gw.call(claims(), { call: "result", callNo: 3, runnerId: "runner-a", result: limit }), {
+		verdict: "stands",
+		reason: "A result with the stop max_turns has no check.",
+	});
+	assert.equal(checks, 1, "The check does not run for a stop that is not success.");
+	const task = await tasks.task(taskId);
+	assert.deepEqual({ status: task?.status, stop: task?.stop }, { status: "done", stop: "max_turns" });
 });
 
 test("P6: each write of the task writer runs two times, and the rows are the same", async () => {

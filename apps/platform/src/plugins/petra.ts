@@ -24,16 +24,14 @@ export interface PetraBindings {
 
 const waitFor = (ms: number) => () => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-// The checker double of task 04 always says "stands" (task 06 replaces it).
-const stands = () => ({ pass: true, reason: "The checker double of task 04 always says stands." });
-
 export function petraPlugins(database: SqlConnections, bindings: PetraBindings): PluginList {
 	return [
 		postgresAdapter(database),
 		r2ObjectStore(bindings.bucket, `accounts/${bindings.accountId}/`),
 		cloudflareQueue(bindings.jobs),
 		ruleModel(),
-		ruleChecker(stands),
+		// The checker model has its own row, apart from the row of the model of the bot (requirement K2).
+		ruleChecker(),
 		platformSandbox(bindings.platform),
 		fixedDecider(),
 		testIdentity(),
