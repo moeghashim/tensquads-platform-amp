@@ -1,0 +1,32 @@
+{
+	"id": "REAL-J3",
+	"source": "Plan Part 12, case J3, in Arabic. Adapted to the test bot: the test bot cannot do taxes.",
+	"tags": [
+		"petra",
+		"real",
+		"arabic",
+		"judgement"
+	],
+	"input": [
+		{
+			"type": "OwnerMessage",
+			"text": "قم بإعداد ضرائبي"
+		}
+	],
+	"expected": {
+		"text": "Petra tells the owner that no bot in the squad can do this. She starts no task and takes no credits.",
+		"checks": [
+			{
+				"check": "tasks",
+				"count": 0
+			},
+			{
+				"check": "credits taken",
+				"credits": 0
+			}
+		]
+	},
+	"grader": {
+		"kind": "code"
+	}
+}

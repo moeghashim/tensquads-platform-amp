@@ -4,7 +4,7 @@
 import { testBot } from "@tensquads/bots";
 import type { BotDefinition, TaskResult } from "@tensquads/contracts";
 
-import { type DayMessage, type ProposalModel, type ProposalStore, proposeDay } from "./propose.js";
+import { type DayMessage, type ProposalCost, type ProposalModel, type ProposalStore, proposeDay } from "./propose.js";
 import { regularText, searchQuery } from "./regular.js";
 
 // The system sets the origin of each fact. A model or a bot never sets it (requirement M2).
@@ -134,14 +134,17 @@ export type MemoryTell = (message: {
 	body: { type: "reply"; text: string };
 }) => Promise<void>;
 
-export interface MemoryDeps {
+// A is the answer of the model of the night job.
+export interface MemoryDeps<A extends { text: string } = { text: string }> {
 	store: MemoryStore;
 	tasks: MemoryTasks;
 	tell: MemoryTell;
 	// The definitions of the bots. The default is the test bot.
 	bots?: readonly BotDefinition[];
 	// The model port, for the proposals of the night job. Without it, the night job proposes nothing.
-	model?: ProposalModel;
+	model?: ProposalModel<A>;
+	// Writes the cost rows of each answer of the model of the night job (requirement N4).
+	modelCost?: ProposalCost<A>;
 }
 
 // A task with a result that stands. A task with a customer reference came from an external event.
@@ -197,7 +200,7 @@ function scopeOf(readList: readonly string[], text: string, limit: number): Sear
 	};
 }
 
-export function memory(deps: MemoryDeps): Memory {
+export function memory<A extends { text: string }>(deps: MemoryDeps<A>): Memory {
 	const { store } = deps;
 	const bots = deps.bots ?? [testBot];
 	const botOf = (id: string) => bots.find((bot) => bot.id === id);
@@ -366,7 +369,7 @@ export function memory(deps: MemoryDeps): Memory {
 		async propose(day) {
 			const { model } = deps;
 			if (!model || (await store.activeCore()).length >= PROPOSE_LIMIT) return 0;
-			return proposeDay({ store, model }, day);
+			return proposeDay({ store, model, ...(deps.modelCost ? { cost: deps.modelCost } : {}) }, day);
 		},
 	};
 }

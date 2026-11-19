@@ -828,3 +828,68 @@ Append-only learning log for commits and deploys. Add new entries only at the en
 - Changed Paths:
   - apps/platform/test-workers/helpers.ts
   - apps/platform/test-workers/worker.test.ts
+## 2026-11-19T22:30:49.861Z
+- Trigger: commit
+- Learning: Task 12: a replayed answer from a different provider needs model 'history' in pi-ai, so the tool call ids are rewritten. Fixed tool texts are English only; N9 covers only the model answer.
+- Context: feat(petra): give Petra a real model with a swap and a cost per model
+- Branch: 12-petra-real-model
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - apps/evals/src/main.ts
+  - apps/evals/test/cases.test.ts
+  - apps/platform/package.json
+  - apps/platform/src/env.ts
+  - apps/platform/src/index.ts
+  - apps/platform/src/petra-object.ts
+  - apps/platform/src/plugins/petra.ts
+  - apps/platform/src/plugins/platform.ts
+  - apps/platform/test/gate.test.ts
+  - apps/platform/test/loop.test.ts
+  - apps/platform/test/night.test.ts
+  - apps/platform/test/plugins.test.ts
+  - apps/platform/test/task-harness.ts
+  - apps/platform/test/views.test.ts
+  - apps/platform/wrangler.jsonc
+  - docs/ARCHITECTURE.md
+  - docs/PRD.md
+  - package-lock.json
+  - package.json
+  - packages/adapters-test/src/identity.ts
+  - packages/adapters-test/src/index.ts
+  - packages/adapters-test/src/model-decider.ts
+  - packages/adapters-test/src/model.ts
+  - packages/adapters-test/test/decider.test.ts
+  - packages/adapters-test/test/identity.test.ts
+  - packages/contracts/src/gateway.ts
+  - packages/contracts/src/messages.ts
+  - packages/contracts/test/api.test.ts
+  - packages/contracts/test/messages.test.ts
+  - packages/core/src/lib/ports.ts
+  - packages/gate/src/gate.ts
+  - packages/gate/src/rules.ts
+  - packages/gate/test/gate.test.ts
+  - packages/memory/src/memory.ts
+  - packages/memory/src/propose.ts
+  - packages/petra/src/account-writer.ts
+  - packages/petra/src/index.ts
+  - packages/petra/src/petra-tools.ts
+  - packages/petra/src/petra.ts
+  - packages/petra/src/task-work.ts
+  - tasks/12-petra-real-model.md
+  - tsconfig.json
+  - apps/evals/src/real.ts
+  - apps/evals/test/real.test.ts
+  - apps/platform/src/model-settings.ts
+  - apps/platform/test-staging/
+  - apps/platform/test/owner-messages.test.ts
+  - apps/platform/test/petra-model.test.ts
+  - db/0008_model_command_cost.sql
+  - docs/evidence/12-petra-real-model/
+  - docs/petra-model.md
+  - evals/cases/real/
+  - packages/adapters-model/
+  - packages/petra/src/instructions.ts
+  - packages/petra/src/language.ts
+  - packages/petra/src/petra-model.ts
+  - scripts/chat.mjs
+  - docs/evidence/12-petra-real-model/chat.cast

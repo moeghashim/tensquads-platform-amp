@@ -6,7 +6,14 @@
 // {"answers":[{"id","answer","probability"}]}: one answer for each question, with the same id. A "yes_no" or a
 // "choice" answer is one of the options. A "score" answer is a number from 0 to 1, written as text. The
 // probability is a number from 0 to 1.
-import { type DeciderAnswer, type DeciderQuestion, type Plugin, ports } from "@tensquads/core";
+import {
+	type DeciderAnswer,
+	type DeciderQuestion,
+	type Model,
+	type Plugin,
+	type PortKey,
+	ports,
+} from "@tensquads/core";
 
 export const DECIDER_HEADER = "Decider questions:";
 
@@ -25,10 +32,13 @@ function isAnswer(value: unknown): value is DeciderAnswer {
 }
 
 // Parses the text of the model. A text that does not have the format is an error of the decider.
+// A real model can put the JSON in a code block. The code block marks are removed.
+const CODE_BLOCK = /^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$/;
+
 function parseDeciderAnswers(text: string, questions: readonly DeciderQuestion[]): DeciderAnswer[] {
 	let parsed: unknown;
 	try {
-		parsed = JSON.parse(text);
+		parsed = JSON.parse(CODE_BLOCK.exec(text)?.[1] ?? text);
 	} catch {
 		throw new Error("The model decider got an answer that is not JSON.");
 	}
@@ -43,13 +53,16 @@ function parseDeciderAnswers(text: string, questions: readonly DeciderQuestion[]
 	});
 }
 
-export function modelDecider(): Plugin {
+// The decider asks the model port by default. For an account with the "real" profile, it asks the model of Petra
+// (task 12, decision D30).
+export function modelDecider(options: { port?: PortKey<Model> } = {}): Plugin {
+	const port = options.port ?? ports.model;
 	return {
 		name: "decider-model",
 		provides: [ports.decider],
-		needs: [ports.model],
+		needs: [port],
 		apply: (ctx) => {
-			const model = ctx.port(ports.model);
+			const model = ctx.port(port);
 			ctx.provide(ports.decider, {
 				name: "model",
 				ask: async (questions) => {

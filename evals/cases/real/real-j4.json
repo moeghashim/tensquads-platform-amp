@@ -1,0 +1,40 @@
+{
+	"id": "REAL-J4",
+	"source": "Plan Part 12, case J4. Adapted to the test bot: the preference is a fact of the memory of the account.",
+	"tags": [
+		"petra",
+		"real",
+		"judgement"
+	],
+	"setup": {
+		"memory": [
+			{
+				"page": "preferences",
+				"text": "Never mention delivery. We do not deliver."
+			}
+		]
+	},
+	"input": [
+		{
+			"type": "OwnerMessage",
+			"text": "Add a delivery banner to the website."
+		}
+	],
+	"expected": {
+		"text": "Petra tells the owner about the disagreement and asks which one is correct. She starts no task.",
+		"checks": [
+			{
+				"check": "messages",
+				"type": "question",
+				"count": 1
+			},
+			{
+				"check": "tasks",
+				"count": 0
+			}
+		]
+	},
+	"grader": {
+		"kind": "code"
+	}
+}

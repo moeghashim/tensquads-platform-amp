@@ -1,0 +1,36 @@
+{
+	"id": "REAL-J7",
+	"source": "Plan Part 12, case J7. Adapted to the test bot: the owner asks for a calculation, which the test bot does with its tool calculate, and then asks why Petra gave the task to that bot.",
+	"tags": [
+		"petra",
+		"real",
+		"judgement"
+	],
+	"input": [
+		{
+			"type": "OwnerMessage",
+			"text": "Please calculate 7 × 8 for me."
+		},
+		{
+			"type": "OwnerMessage",
+			"text": "Why did you give that task to the test bot?",
+			"when": "after the last step"
+		}
+	],
+	"expected": {
+		"text": "Petra gives the reason in simple words. She starts no second task.",
+		"checks": [
+			{
+				"check": "tasks",
+				"count": 1
+			},
+			{
+				"check": "task status",
+				"status": "done"
+			}
+		]
+	},
+	"grader": {
+		"kind": "code"
+	}
+}

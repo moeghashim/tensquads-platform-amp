@@ -175,6 +175,8 @@ export async function harness(prefix: string, initialCredits = HARNESS_CREDITS, 
 				tasks: usedTasks,
 				tell: out.tell,
 				model,
+				// As the Durable Object: the night job writes the cost rows of its model call (requirement N4).
+				modelCost: (cause, answer) => costBook.modelCall({ cause, taskId: null }, answer),
 			});
 			const decide = decisions({
 				store: decisionWriter(database, accountId),

@@ -32,7 +32,7 @@ test("W3: the list query makes a number from the text of the query string", () =
 	assert.equal(messageListQuery.safeParse({ after: "abc" }).success, false);
 });
 
-test("W3: the list answer rejects a message that is not of the six types", () => {
+test("W3: the list answer rejects a message that is not of the eight types", () => {
 	const at = "2026-11-18T10:00:00Z";
 	const reply = { seq: 1, at, type: "reply", text: "Hi" };
 	assert.equal(messageListAnswer.safeParse({ messages: [reply] }).success, true);

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { modelDecider, ruleChecker, scriptedModel } from "@tensquads/adapters-test";
@@ -7,6 +8,7 @@ import { checker } from "@tensquads/checker";
 import { type Plugin, type PortKey, ports, startSystem } from "@tensquads/core";
 
 import { type EvalVars, evalSettings } from "../src/eval-settings.js";
+import { identityTokens, modelSettings } from "../src/model-settings.js";
 import { petraPlugins as petraList } from "../src/plugins/petra.js";
 import { platformPlugins as platformList } from "../src/plugins/platform.js";
 
@@ -253,4 +255,118 @@ test("E2 and E3: the settings of an eval Worker give the rows of Petra: no outgo
 	await system.stop();
 	const identity = (await startSystem(platformList({}, { evalOwners: evals.evalOwners }))).port(ports.identity);
 	assert.equal((await identity.whoIs("eval-owner:eval-1"))?.kind, "owner");
+});
+
+// The settings files of the tests: the vars of wrangler.jsonc and the bindings of the Workers tests.
+const testSettingsFiles = ["../wrangler.jsonc", "../vitest.config.ts"].map((path) =>
+	readFileSync(new URL(path, import.meta.url), "utf8"),
+);
+
+test("N2: the plug-in list of the tests has no real model adapter, and the settings of the tests have no model key", async () => {
+	const names = petraPlugins.map((row) => row.name);
+	assert.deepEqual(
+		names.filter((name) => name.startsWith("model-pi-")),
+		[],
+	);
+	assert.ok(names.includes("petra-model-test"));
+	const system = await startSystem(petraPlugins);
+	// The model of Petra is the model of the list: the rule model, with the time limit and the second try.
+	const answer = await system
+		.port(ports.petraModel)
+		.complete({ messages: [{ role: "user", content: "Hi" }], tools: [] });
+	assert.deepEqual([answer.provider, answer.model], ["test", "rule"]);
+	await system.stop();
+	// No setting of the tests gives a value to a model key. A comment can name the secret.
+	for (const text of testSettingsFiles) assert.doesNotMatch(text, /[A-Z]+_API_KEY"?\s*:/);
+});
+
+test("N1: an account with the real profile gets the pi adapter row and the model decider; each other row stays", async () => {
+	const realModel = {
+		model: "gpt-6.2-sol",
+		secret: (name: string) => (name === "OPENAI_API_KEY" ? "sk-x" : undefined),
+	};
+	const real = petraList({}, { ...fakeBindings, realModel });
+	const changed = real.flatMap((row, index) => (row.name === petraPlugins[index]?.name ? [] : [row.name]));
+	assert.deepEqual(changed, ["model-pi-openai", "decider-model"]);
+	const system = await startSystem(real);
+	assert.deepEqual(system.port(ports.petraModel).id, { provider: "openai", model: "gpt-6.2-sol" });
+	assert.equal(system.port(ports.decider).name, "model");
+	await system.stop();
+});
+
+test("N6 and N1: the settings of the model: the time limit, the model, the base URL and the table of tokens", () => {
+	assert.deepEqual(modelSettings({ MODEL_TIMEOUT_MS: "60000", PETRA_MODEL: "gpt-6.2-sol" }), {
+		timeoutMs: 60_000,
+		petraModel: "gpt-6.2-sol",
+	});
+	assert.deepEqual(modelSettings({ MODEL_TIMEOUT_MS: "5", PETRA_MODEL_BASE_URL: "https://glm.test/v4" }), {
+		timeoutMs: 5,
+		petraModel: "",
+		baseUrl: "https://glm.test/v4",
+	});
+	assert.throws(() => modelSettings({}), /The setting MODEL_TIMEOUT_MS is missing\./);
+	const owner = { kind: "owner", ownerId: "moe", accountId: "chat-1" };
+	assert.deepEqual(identityTokens(JSON.stringify({ t1: owner })), { t1: owner });
+	assert.equal(identityTokens(undefined), undefined);
+	assert.throws(() => identityTokens('{"t1":{"kind":"owner"}}'), /IDENTITY_TOKENS/);
+	// The error names the setting and never its value.
+	assert.throws(
+		() => identityTokens("secret-text"),
+		(error: Error) => !error.message.includes("secret-text"),
+	);
+});
+
+// The OpenAI Responses API with one text. Only the Node tests use it. No request goes to a provider.
+function responsesText(text: string): Response {
+	const item = {
+		type: "message",
+		id: "msg_1",
+		role: "assistant",
+		status: "completed",
+		content: [{ type: "output_text", text, annotations: [] }],
+	};
+	const events = [
+		{ type: "response.created", response: { id: "resp_1", status: "in_progress" } },
+		{ type: "response.output_item.added", output_index: 0, item },
+		{ type: "response.output_item.done", output_index: 0, item },
+		{
+			type: "response.completed",
+			response: {
+				id: "resp_1",
+				status: "completed",
+				usage: { input_tokens: 9, output_tokens: 3, total_tokens: 12 },
+			},
+		},
+	];
+	return new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""), {
+		headers: { "content-type": "text/event-stream" },
+	});
+}
+
+test("N6: on a real account, the decider and the memory get the time limit and the second try of the model of Petra", async () => {
+	let calls = 0;
+	const answers = JSON.stringify({ answers: [{ id: "q-1", answer: "yes", probability: 0.9 }] });
+	const fetch: typeof globalThis.fetch = async () => {
+		calls += 1;
+		return calls === 1 ? Response.json({ error: { message: "busy" } }, { status: 500 }) : responsesText(answers);
+	};
+	const realModel = {
+		model: "gpt-6.2-sol",
+		secret: (name: string) => (name === "OPENAI_API_KEY" ? "sk-x" : undefined),
+		fetch,
+	};
+	const lines: string[] = [];
+	const system = await startSystem(petraList({}, { ...fakeBindings, realModel, log: (line) => lines.push(line) }));
+	const question = {
+		id: "q-1",
+		point: "request-clear",
+		type: "yes_no" as const,
+		text: "Is it clear?",
+		options: ["yes", "no"],
+	};
+	const [answer] = await system.port(ports.decider).ask([question]);
+	assert.equal(answer?.answer, "yes");
+	assert.equal(calls, 2, "one more try after the failure");
+	assert.equal(lines.filter((line) => line.startsWith("petra: model call 1 of 2 failed")).length, 1);
+	await system.stop();
 });

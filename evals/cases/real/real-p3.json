@@ -1,0 +1,30 @@
+{
+	"id": "REAL-P3",
+	"source": "Plan Part 12, case P3. Adapted to the test bot: the account has no task today, so Petra answers alone.",
+	"tags": [
+		"petra",
+		"real"
+	],
+	"input": [
+		{
+			"type": "OwnerMessage",
+			"text": "What did the squad do today?"
+		}
+	],
+	"expected": {
+		"text": "Petra answers alone. No bot is started, and no credits are taken.",
+		"checks": [
+			{
+				"check": "tasks",
+				"count": 0
+			},
+			{
+				"check": "credits taken",
+				"credits": 0
+			}
+		]
+	},
+	"grader": {
+		"kind": "code"
+	}
+}

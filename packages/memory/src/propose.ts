@@ -22,10 +22,13 @@ export interface NewProposal {
 	evidence: readonly string[];
 }
 
-// The part of the model port that the night job uses.
-export interface ProposalModel {
-	complete(request: { messages: { role: "user"; content: string }[]; tools: string[] }): Promise<{ text: string }>;
+// The part of the model port that the night job uses. A is the answer of the model.
+export interface ProposalModel<A extends { text: string } = { text: string }> {
+	complete(request: { messages: { role: "user"; content: string }[]; tools: string[] }): Promise<A>;
 }
+
+// Writes the cost rows of one answer of the model (requirement N4). The cause is "night/{date}".
+export type ProposalCost<A> = (cause: string, answer: A) => Promise<void>;
 
 export interface ProposalStore {
 	// The evidence of each proposal of the week.
@@ -62,8 +65,8 @@ function parseAnswer(text: string): { text: string; evidence: string[] }[] {
 }
 
 // Proposes items from the messages of one day. Returns the number of new proposals.
-export async function proposeDay(
-	deps: { store: ProposalStore; model: ProposalModel },
+export async function proposeDay<A extends { text: string }>(
+	deps: { store: ProposalStore; model: ProposalModel<A>; cost?: ProposalCost<A> },
 	day: { date: string; messages: readonly DayMessage[] },
 ): Promise<number> {
 	if (day.messages.length === 0) return 0;
@@ -75,6 +78,7 @@ export async function proposeDay(
 		messages: [{ role: "user", content: [NIGHT_MARKER, ...lines].join("\n") }],
 		tools: [],
 	});
+	await deps.cost?.(`night/${day.date}`, answer);
 	// Our code keeps only the ids of the messages that it gave. The model never adds an id or a text as evidence.
 	const known = new Set(day.messages.map((message) => message.id));
 	const used = new Set(existing.flatMap((proposal) => proposal.evidence));

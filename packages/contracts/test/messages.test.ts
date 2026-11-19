@@ -26,6 +26,9 @@ const samples: Record<string, Record<string, unknown>> = {
 		contentHash: "sha256:abc",
 		rule: "rule-1",
 		limit: 10_000_000,
+		amount: 20_000_000,
+		bot: "test-bot",
+		taskId: "t-1",
 	},
 	result: {
 		seq: 4,
@@ -53,6 +56,8 @@ const samples: Record<string, Record<string, unknown>> = {
 		actionId: "call-3",
 		what: "The refund service did not answer.",
 	},
+	approval_decided: { seq: 7, at, type: "approval_decided", approvalId: "a-1", decision: "approve" },
+	question_answered: { seq: 8, at, type: "question_answered", questionId: "q-1" },
 };
 
 function issuePaths(input: unknown): string[] {
@@ -61,7 +66,7 @@ function issuePaths(input: unknown): string[] {
 	return parsed.error?.issues.map((issue) => issue.path.join(".")) ?? [];
 }
 
-test("O1: each of the six types parses a valid sample", () => {
+test("O1: each of the eight types parses a valid sample", () => {
 	for (const type of OWNER_MESSAGE_TYPES) {
 		const sample = samples[type];
 		assert.ok(sample, `No sample for ${type}.`);
@@ -70,10 +75,22 @@ test("O1: each of the six types parses a valid sample", () => {
 	}
 });
 
-test("O1: the union has exactly the six types", () => {
+test("O1: the union has exactly the eight types", () => {
 	const types = ownerMessage.options.map((option) => option.shape.type.value);
 	assert.deepEqual([...types].sort(), [...OWNER_MESSAGE_TYPES].sort());
-	assert.equal(types.length, 6);
+	assert.equal(types.length, 8);
+});
+
+test("O1: an approval request has the amount, the bot and the task. The amount is null for an action with no amount", () => {
+	const { amount: _amount, ...noAmount } = samples.approval_request ?? {};
+	assert.deepEqual(issuePaths(noAmount), ["amount"]);
+	assert.equal(ownerMessage.safeParse({ ...samples.approval_request, amount: null }).success, true);
+	const { bot: _bot, taskId: _taskId, ...noTask } = samples.approval_request ?? {};
+	assert.deepEqual(issuePaths(noTask).sort(), ["bot", "taskId"]);
+});
+
+test("O1: an approval decision is approve or reject", () => {
+	assert.deepEqual(issuePaths({ ...samples.approval_decided, decision: "maybe" }), ["decision"]);
 });
 
 test("O1: a message with seq 0 or no at fails", () => {
@@ -101,7 +118,7 @@ function keysOf(schema: z.ZodType): string[] {
 	return [];
 }
 
-test("O2: no key of the six types names a layout, a colour, a component or a style", () => {
+test("O2: no key of the eight types names a layout, a colour, a component or a style", () => {
 	const keys = ownerMessage.options.flatMap((option) => keysOf(option));
 	assert.ok(keys.includes("text"), "The walk found no keys.");
 	const bad = keys.filter((key) => /layout|colou?r|component|style/i.test(key));

@@ -13,6 +13,8 @@
 		"build": "npm run build --workspaces --if-present",
 		"pretest": "npm run build -w packages --if-present --silent",
 		"test": "node --test scripts/test/*.test.mjs && npm run test --workspaces --if-present",
+		"test:staging": "npm run test:staging -w @tensquads/platform",
+		"chat": "node scripts/chat.mjs",
 		"pr:ready": "node scripts/pr-readiness.mjs",
 		"fallow:audit": "fallow audit --changed-since origin/main",
 		"preview:cloudflare": "npm run cf:preview -w @tensquads/web",

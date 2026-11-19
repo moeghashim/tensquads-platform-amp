@@ -1,0 +1,19 @@
+{
+	"name": "@tensquads/adapters-model",
+	"version": "0.0.2",
+	"private": true,
+	"description": "The real adapter of the model of Petra, on the model layer of pi.",
+	"license": "MIT",
+	"type": "module",
+	"exports": "./src/index.ts",
+	"engines": {
+		"node": "26.x"
+	},
+	"dependencies": {
+		"@earendil-works/pi-ai": "1.5.2",
+		"@tensquads/core": "0.0.2"
+	},
+	"scripts": {
+		"test": "tsx --test \"test/**/*.test.ts\""
+	}
+}

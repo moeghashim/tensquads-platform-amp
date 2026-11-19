@@ -1,16 +1,20 @@
 // The plug-in list of Petra. One row is one plug-in (requirement C1).
 // To replace a plug-in, change its row. Do not change another row.
+import { type ModelSettings, piModel } from "@tensquads/adapters-model";
 import { postgresAdapter } from "@tensquads/adapters-postgres";
 import {
 	fixedDecider,
+	modelDecider,
 	noShadowDecider,
+	petraTestModel,
 	ruleChecker,
 	ruleModel,
 	testChannel,
 	testIdentity,
 	testPayment,
 } from "@tensquads/adapters-test";
-import type { PluginList, SqlConnections } from "@tensquads/core";
+import { type Model, type Plugin, type PluginList, ports, type SqlConnections } from "@tensquads/core";
+import { limitedModel } from "@tensquads/petra";
 
 import type { EvalSettings } from "../eval-settings.js";
 import {
@@ -35,6 +39,30 @@ export interface PetraBindings {
 	evals?: EvalSettings;
 	// Gets the line of each send of the test adapters. The default is the log of the Worker.
 	log?: (line: string) => void;
+	// Only for an account with the "real" profile (decision D30): the model, the base URL and the secrets of the Worker.
+	// Without them, Petra uses the model of the list.
+	realModel?: ModelSettings;
+	// The time limit of one model call of Petra (the setting MODEL_TIMEOUT_MS). The default is its first value.
+	modelTimeoutMs?: number;
+}
+
+// The first value of the setting MODEL_TIMEOUT_MS (section 10).
+const MODEL_TIMEOUT_MS = 60_000;
+
+// The row of the model of Petra, with the time limit and the second try on the port (requirement N6). The loop,
+// the decider and the night job get the same port, so each call gets them one time.
+function limitedRow(row: Plugin, options: Parameters<typeof limitedModel>[1]): Plugin {
+	return {
+		...row,
+		apply: (ctx) =>
+			row.apply({
+				...ctx,
+				provide: (key, impl) =>
+					key.name === ports.petraModel.name
+						? ctx.provide(ports.petraModel, limitedModel(impl as Model, options))
+						: ctx.provide(key, impl),
+			}),
+	};
 }
 
 export type ShadowDecider = "none" | "fixed";
@@ -54,10 +82,19 @@ export function petraPlugins(database: SqlConnections, bindings: PetraBindings):
 			script: evals?.modelScript ?? "base",
 			...(evals?.modelHoldMs ? { hold: waitFor(evals.modelHoldMs) } : {}),
 		}),
+		// The model of Petra (decision D30). The row of a "real" account names the provider. A swap of the provider
+		// changes this row, the setting PETRA_MODEL, the secret of the key and the price (requirement N7).
+		limitedRow(bindings.realModel ? piModel({ provider: "openai", ...bindings.realModel }) : petraTestModel(), {
+			timeoutMs: bindings.modelTimeoutMs ?? MODEL_TIMEOUT_MS,
+			log,
+		}),
 		// The checker model has its own row, apart from the row of the model of the bot (requirement K2).
 		ruleChecker(),
 		platformSandbox(bindings.platform),
-		fixedDecider({ points: evals?.deciderPoints ?? {} }),
+		// The decider of a "real" account asks the model of Petra (task 12).
+		bindings.realModel
+			? modelDecider({ port: ports.petraModel })
+			: fixedDecider({ points: evals?.deciderPoints ?? {} }),
 		// The shadow mode has its own row (requirement Q5). Its answers are recorded and never used.
 		bindings.shadowDecider === "fixed" ? fixedDecider({ shadow: true }) : noShadowDecider(),
 		testIdentity(),

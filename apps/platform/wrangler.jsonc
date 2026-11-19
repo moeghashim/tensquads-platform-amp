@@ -48,7 +48,12 @@
 		// The variant of the script of the rule model: "base" or "refund-double".
 		"TEST_MODEL_SCRIPT": "base",
 		// Only for the tests of the full path: each answer of the rule model waits this long.
-		"MODEL_HOLD_MS": "0"
+		"MODEL_HOLD_MS": "0",
+		// The time limit of one model call of Petra (requirement N6). After it, Petra tries one more time.
+		"MODEL_TIMEOUT_MS": "60000",
+		// The model of Petra for an account with the "real" profile (task 12). The plug-in row names the provider,
+		// and the secret <PROVIDER>_API_KEY has the key. PETRA_MODEL_BASE_URL is an optional other address.
+		"PETRA_MODEL": "gpt-6.2-sol"
 	},
 	"observability": {
 		"enabled": true

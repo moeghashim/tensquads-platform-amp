@@ -6,7 +6,8 @@ import type { Model, ModelAnswer } from "@tensquads/core";
 import type { AccountReader, AccountWriter, EventOrigin, OwnerInput } from "./account-writer.js";
 import { customerRef } from "./customer.js";
 import { FORGOTTEN_KEY, petraForgotten } from "./night.js";
-import { outbox as makeOutbox, type Outbox, type PetraStorage } from "./outbox.js";
+import { outbox as makeOutbox, type Outbox, type OwnerMessageBody, type PetraStorage } from "./outbox.js";
+import { READ_ONLY_TOOLS } from "./petra-tools.js";
 import type { TaskWork } from "./task-work.js";
 
 // The conversation of Petra (pi-durable). The request id makes a second submit of the same message do nothing.
@@ -93,15 +94,48 @@ export function conversationText(commandId: string, channel: string, text: strin
 	return `[command ${commandId} on ${channel}] ${text}`;
 }
 
-// The command of a model request of Petra: the command id of the newest owner message in her conversation, or
-// undefined when the request has none. Petra uses it for the key of the cost rows (section 7.1).
-const COMMAND_TEXT = /^\[command (\S+) on \S+\] /;
-export function conversationCommand(messages: readonly { role: string; content: string }[]): string | undefined {
-	const owner = [...messages]
-		.reverse()
-		.find((message) => message.role === "user" && COMMAND_TEXT.test(message.content));
-	return owner ? COMMAND_TEXT.exec(owner.content)?.[1] : undefined;
+// The command of a model request of Petra: the newest owner message in her conversation, or undefined when the
+// request has none. Petra uses its id for the key of the cost rows (section 7.1), and its channel and text for
+// the input of her tools (task 12).
+const COMMAND_TEXT = /^\[command (\S+) on (\S+)\] ([\s\S]*)$/;
+
+export interface ConversationInput {
+	commandId: string;
+	channel: string;
+	text: string;
+	// True when a tool of Petra finished the command after the owner message: the tool had no error, and it is not a
+	// tool that only reads. Then the event of the command is done.
+	handled: boolean;
 }
+
+export function conversationInput(
+	messages: readonly { role: string; content: string }[],
+): ConversationInput | undefined {
+	const isCommand = (message: { role: string; content: string }) =>
+		message.role === "user" && COMMAND_TEXT.test(message.content);
+	const index = messages.length - 1 - [...messages].reverse().findIndex(isCommand);
+	const match = COMMAND_TEXT.exec(messages[index]?.content ?? "");
+	if (!match) return undefined;
+	const [, commandId = "", channel = "", text = ""] = match;
+	const handled = messages.slice(index + 1).some(finishedCommand);
+	return { commandId, channel, text, handled };
+}
+
+// A tool result is JSON text (packages/loop, gateway-model.ts). Only a tool that finished with no error marks the
+// command done.
+function finishedCommand(message: { role: string; content: string }): boolean {
+	if (message.role !== "tool") return false;
+	let result: { tool?: unknown; isError?: unknown };
+	try {
+		result = JSON.parse(message.content) as { tool?: unknown; isError?: unknown };
+	} catch {
+		return false;
+	}
+	return result.isError !== true && typeof result.tool === "string" && !READ_ONLY_TOOLS.has(result.tool);
+}
+
+export const conversationCommand = (messages: readonly { role: string; content: string }[]): string | undefined =>
+	conversationInput(messages)?.commandId;
 
 // The first input of a new conversation: the last messages of the owner. It has no command, so it starts no tool.
 function historyText(inputs: readonly OwnerInput[]): string {
@@ -211,15 +245,31 @@ export function petra(deps: PetraDeps): Petra {
 		});
 	}
 
+	// The message that tells a screen that Petra applied a decision or an answer of the owner (task 12).
+	// It goes to the channel of the task. It has the key of the command, so a command that runs again
+	// writes no second message. A command that changed nothing writes no message.
+	async function tellHandled(work: TaskWork, command: Command): Promise<void> {
+		let told: { channel: string; body: OwnerMessageBody } | undefined;
+		if (command.type === "OwnerAnswer") {
+			const applied = await work.ownerAnswer(command);
+			const body = { type: "question_answered" as const, questionId: command.questionId };
+			told = applied && { channel: applied.channel, body };
+		} else if (command.type === "ApprovalDecision") {
+			const applied = await work.approvalDecision(command);
+			const body = { type: "approval_decided" as const, approvalId: command.approvalId };
+			told = applied && { channel: applied.channel, body: { ...body, decision: applied.decision } };
+		}
+		if (told) await out.tell({ sourceRef: `cmd/${command.commandId}/handled`, ...told });
+	}
+
 	async function handleTask(command: Command): Promise<void> {
 		if (command.type === "RunJob") return runJob(deps, command);
 		if (!work) return;
 		if (command.type === "CancelTask") await work.cancel(command.taskId, "owner");
 		else if (command.type === "SandboxExited") await work.sandboxExited(command);
-		else if (command.type === "OwnerAnswer") await work.ownerAnswer(command);
 		else if (command.type === "ResendSandboxRequests") await work.resendRequests();
 		else if (command.type === "SetRule") await work.setRule(command);
-		else if (command.type === "ApprovalDecision") await work.approvalDecision(command);
+		else await tellHandled(work, command);
 	}
 
 	async function handle(command: Command): Promise<void> {

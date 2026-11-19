@@ -15,6 +15,7 @@
 		"packages/*/src/**/*",
 		"packages/*/test/**/*",
 		"apps/platform/test/**/*",
+		"apps/platform/test-staging/**/*",
 		"apps/runner/test/**/*",
 		"apps/launcher/test/**/*",
 		"apps/launcher/test-e2e/**/*",

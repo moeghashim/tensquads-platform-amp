@@ -302,7 +302,7 @@ Petra does not run in a sandbox. Her loop is the decision sequence of the plan, 
 3. The model port answers a question that needs a plan or a text. For an account with the "real" profile on staging, this is a real large model (decisions D24, D30). In all other cases, it is the fake model.
 4. The owner answers the rest.
 
-Petra uses pi-durable in her Durable Object for her conversation with the owner, with the pi-durable storage for Durable Objects. Her tools are: start a task, answer the owner, ask the owner, read the memory, tell the status of a task, stop a task. She has no tool that changes the business. The tool "stop a task" does the same as the `CancelTask` command, so the owner can stop a task in the chat. The decision point "is this message for a task that runs" finds the task. If it is not sure, Petra asks the owner which task. Each tool of Petra is declared `replay: "safe"`, and each one writes by key.
+Petra uses pi-durable in her Durable Object for her conversation with the owner, with the pi-durable storage for Durable Objects. Her eight tools are: start a task, answer the owner, ask the owner, read the memory, tell the status of a task, stop a task, remember a fact, promote a fact to the core. The last two came with the memory (task 08). She has no tool that changes the business. The tool "stop a task" does the same as the `CancelTask` command, so the owner can stop a task in the chat. The decision point "is this message for a task that runs" finds the task. If it is not sure, Petra asks the owner which task. Each tool of Petra is declared `replay: "safe"`, and each one writes by key.
 
 **How Petra takes commands:**
 
@@ -483,10 +483,12 @@ Each one has `commandId` and `at`. Only a super admin can send them. The Platfor
 |---|---|---|
 | `reply` | Petra answers in the chat | `text` |
 | `question` | Petra or a bot needs a fact or a choice | `questionId`, `text`, `options` |
-| `approval_request` | An action needs an approval | `approvalId`, `action`, `content`, `contentHash`, `rule`, `limit` |
+| `approval_request` | An action needs an approval | `approvalId`, `action`, `content`, `contentHash`, `rule`, `limit`, `amount` (millionths of a US dollar, or null when the action has no amount), `bot`, `taskId` |
 | `result` | A task is complete | `taskId`, `summary`, `evidence` |
 | `status` | The owner asks what a bot does, or a task stopped | `taskId`, `bot`, `attempt`, `step`, `since` |
 | `action_not_confirmed` | A service cannot confirm an action | `taskId`, `actionId`, `what` |
+| `approval_decided` | Petra handled an `ApprovalDecision` | `approvalId`, `decision` (approve or reject) |
+| `question_answered` | Petra handled an `OwnerAnswer` | `questionId` |
 
 Each message has `seq`, its sequence number in the account, and `at`. No message has a field for layout, colour or a component name (requirement O2).
 
@@ -517,7 +519,7 @@ Rules:
 - A call with no valid sign-in, pass or key gets a refusal with no detail.
 - Each error has one form: `code` and `message`. It never has a key, a stack trace or data of a different account.
 - **The stream.** The Worker gives the WebSocket to the Petra of the account. Petra accepts it with hibernation, so an open stream does not keep her in memory. Petra sends a message on the stream only after the message is in the database.
-- The list and the stream give only the six types of section 6.3. They do not give the messages of customers.
+- The list and the stream give only the eight types of section 6.3. They do not give the messages of customers.
 - The list and the stream give the same messages in the same sequence. A client that loses the stream connects again with its last `seq`.
 
 ## 7. The data [Proposal]

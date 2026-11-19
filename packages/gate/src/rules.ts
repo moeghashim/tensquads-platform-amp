@@ -35,6 +35,15 @@ async function reasonsCheck(params: Record<string, unknown>, check: ReasonCheck 
 	return check ? check(reasons) : false;
 }
 
+// The amount of an action in millionths of a US dollar, or null when the action has no amount.
+export function actionAmount(kind: ActionKind, content: Record<string, unknown>): number | null {
+	// Number("") and Number(null) are 0. Only a number or a text with digits gives an amount.
+	const raw = content.amount;
+	const given = typeof raw === "number" || (typeof raw === "string" && raw.trim() !== "");
+	const amount = Math.round(Number(raw) * MICROS);
+	return kind === "money" && given && Number.isFinite(amount) && amount >= 0 ? amount : null;
+}
+
 async function moneyCheck(store: GateStore, content: Record<string, unknown>, check?: ReasonCheck): Promise<RuleCheck> {
 	const rule = await store.activeRule(MONEY_LIMIT);
 	const limit = rule ? maxAmountOf(rule.params) : null;

@@ -34,6 +34,8 @@ const question = z
 // The rule is the id of the rule that needs the approval.
 // It is null when the kind of the action needs an approval with no rule.
 // The limit is in millionths of a US dollar. It is null when the rule has no amount.
+// The amount of the action is in millionths of a US dollar. It is null when the action has no amount (task 12).
+// The bot and the task are the task of the action.
 // A later task decides the form of the content. Here it is the text that the owner reads.
 const approvalRequest = z
 	.object({
@@ -45,6 +47,9 @@ const approvalRequest = z
 		contentHash: id,
 		rule: id.nullable(),
 		limit: z.int().nonnegative().nullable(),
+		amount: z.int().nonnegative().nullable(),
+		bot: id,
+		taskId: id,
 	})
 	.strict();
 
@@ -80,6 +85,25 @@ const actionNotConfirmed = z
 	})
 	.strict();
 
+// Petra handled a decision of the owner on an approval (task 12). A screen removes the buttons of the approval.
+const approvalDecided = z
+	.object({
+		...base,
+		type: z.literal("approval_decided"),
+		approvalId: id,
+		decision: z.enum(["approve", "reject"]),
+	})
+	.strict();
+
+// Petra handled an answer of the owner to a question (task 12).
+const questionAnswered = z
+	.object({
+		...base,
+		type: z.literal("question_answered"),
+		questionId: id,
+	})
+	.strict();
+
 export const ownerMessage = z.discriminatedUnion("type", [
 	reply,
 	question,
@@ -87,6 +111,8 @@ export const ownerMessage = z.discriminatedUnion("type", [
 	result,
 	status,
 	actionNotConfirmed,
+	approvalDecided,
+	questionAnswered,
 ]);
 
 export type OwnerMessage = z.infer<typeof ownerMessage>;
@@ -98,4 +124,6 @@ export const OWNER_MESSAGE_TYPES = [
 	"result",
 	"status",
 	"action_not_confirmed",
+	"approval_decided",
+	"question_answered",
 ] as const;

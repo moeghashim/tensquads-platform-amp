@@ -1,0 +1,35 @@
+{
+	"id": "REAL-P4",
+	"source": "Plan Part 12, case P4. Adapted to the test bot: the owner asks for a task in which the bot must ask the owner, so the task waits for the owner while the owner asks for its status. The request names the task clearly, so a real model starts it.",
+	"tags": [
+		"petra",
+		"real"
+	],
+	"input": [
+		{
+			"type": "OwnerMessage",
+			"text": "Start a task for the test bot: find our shop hours, and ask me to confirm them before you finish."
+		},
+		{
+			"type": "OwnerMessage",
+			"text": "Is my task done?",
+			"when": "when the task waits"
+		}
+	],
+	"expected": {
+		"text": "Petra says that the task is not done and what remains. She starts no second task.",
+		"checks": [
+			{
+				"check": "tasks",
+				"count": 1
+			},
+			{
+				"check": "task status",
+				"status": "waiting for the owner"
+			}
+		]
+	},
+	"grader": {
+		"kind": "code"
+	}
+}

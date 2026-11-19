@@ -122,8 +122,8 @@ test("L6: an answer of the owner to a parked question makes a decision, a runnin
 		questionId: "q1",
 		text: "The shop in Riyadh.",
 	} as const;
-	assert.equal(await work.ownerAnswer(answer), true);
-	assert.equal(await work.ownerAnswer(answer), true);
+	assert.deepEqual(await work.ownerAnswer(answer), { channel: "chat" });
+	assert.deepEqual(await work.ownerAnswer(answer), { channel: "chat" });
 	const rows = await taskRows(h.database, h.accountId);
 	assert.deepEqual(
 		rows.attempts.map((row) => [row.attempt_no, row.cause_ref, row.reason]),

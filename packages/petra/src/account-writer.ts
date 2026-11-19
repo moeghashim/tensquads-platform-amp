@@ -67,7 +67,16 @@ export interface AccountReader {
 	balance(): Promise<number>;
 	// The status of one task of the account, or undefined.
 	taskStatus(taskId: string): Promise<string | undefined>;
+	// The language and the model profile of the account (decision D30). Only a super admin sets them.
+	profile(): Promise<AccountProfile>;
 }
+
+export interface AccountProfile {
+	language: "en" | "ar";
+	modelProfile: "real" | "test";
+}
+
+const NO_ACCOUNT_PROFILE: AccountProfile = { language: "en", modelProfile: "test" };
 
 export function accountWriter(database: Database, accountId: string): AccountWriter & AccountReader {
 	const run = <T>(work: (tx: Transaction) => Promise<T>) => database.transaction({ role: "petra", accountId }, work);
@@ -195,6 +204,15 @@ export function accountWriter(database: Database, accountId: string): AccountWri
 			run(async (tx) => {
 				const rows = await tx.query<{ credits: string | null }>("SELECT sum(credits) AS credits FROM ledger");
 				return Number(rows[0]?.credits ?? 0);
+			}),
+		profile: () =>
+			run(async (tx) => {
+				const [row] = await tx.query<{
+					language: AccountProfile["language"];
+					model_profile: AccountProfile["modelProfile"];
+				}>("SELECT language, model_profile FROM accounts WHERE id = $1", [accountId]);
+				// An account with no row gets the fake model and English, so Petra still starts and refuses its calls.
+				return row ? { language: row.language, modelProfile: row.model_profile } : NO_ACCOUNT_PROFILE;
 			}),
 	};
 }

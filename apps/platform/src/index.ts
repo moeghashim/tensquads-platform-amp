@@ -28,7 +28,8 @@ const bearer = (request: Request) => request.headers.get("authorization")?.match
 
 async function whoCalls(request: Request, settings: Settings): Promise<Principal | undefined> {
 	const token = bearer(request);
-	system ??= startSystem(platformPlugins({}, { evalOwners: settings.evals.evalOwners }));
+	const tokens = settings.identityTokens ? { tokens: settings.identityTokens } : {};
+	system ??= startSystem(platformPlugins({}, { evalOwners: settings.evals.evalOwners, ...tokens }));
 	return token ? (await system).port(ports.identity).whoIs(token) : undefined;
 }
 
