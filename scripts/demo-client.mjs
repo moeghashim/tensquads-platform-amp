@@ -33,6 +33,11 @@ export async function setUpAccount(call, at) {
 	});
 }
 
+// Sends one command as owner A, with the time now when the command has none. Returns the status and the answer.
+export function sendCommand(call, command) {
+	return call("/v1/commands", "owner-a", { at: new Date().toISOString(), ...command });
+}
+
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Connects to the database of DATABASE_URL, as a developer reads it. A demo reads rows with it, and never writes.

@@ -766,3 +766,16 @@ Append-only learning log for commits and deploys. Add new entries only at the en
   - package.json
   - package-lock.json
   - docs/evidence/08-memory
+## 2026-11-19T09:36:17.930Z
+- Trigger: commit
+- Learning: The decider reads and the code decides: the gate asks the refund points only at or below the limit of a rule with reasons, so a decider answer can never start an action above the limit. A shadow decider is a second port key with its own row.
+- Context: feat(decisions): add decision points, deciders and records
+- Branch: 09-decisions
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - apps
+  - packages
+  - scripts
+  - package.json
+  - package-lock.json
+  - docs/evidence/09-decisions

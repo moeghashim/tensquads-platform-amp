@@ -192,7 +192,10 @@ export function gate(deps: GateDeps): Gate {
 	}
 
 	async function fresh(request: ActionRequest, kind: ActionKind, hash: string): Promise<ActionAnswer> {
-		const check: RuleCheck = await ruleCheck(store, kind, request.content);
+		const { taskId, toolCallId } = request;
+		const reasons = deps.reasons;
+		const asks = reasons ? (text: string) => reasons({ taskId, toolCallId, reasons: text }) : undefined;
+		const check: RuleCheck = await ruleCheck(store, kind, request.content, asks);
 		const status = check.needs === "nothing" ? "started" : "pending";
 		const wrote = await store.addAction({
 			taskId: request.taskId,

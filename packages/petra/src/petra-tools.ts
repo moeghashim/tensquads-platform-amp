@@ -1,7 +1,10 @@
 // The tools of Petra (docs/ARCHITECTURE.md, section 4.6), and the two memory tools of the owner (task 08). The loop declares each one replay: "safe".
 // Each tool writes by a key from its command, and reads its decision rows first, so a second run changes nothing.
 // The input of each tool has the command id, the channel and the text of the owner message.
-import type { AccountWriter } from "./account-writer.js";
+import { testBot } from "@tensquads/bots";
+import type { BotDefinition } from "@tensquads/contracts";
+
+import type { AccountReader, AccountWriter } from "./account-writer.js";
 import type { Outbox } from "./outbox.js";
 import type { TaskWork } from "./task-work.js";
 import type { TaskReader, TaskRow, TaskWriter } from "./task-writer.js";
@@ -24,11 +27,37 @@ export const PETRA_TOOLS = {
 	promoteFact: "promote_fact",
 } as const;
 
-// In task 04, Petra starts each task for the test bot, with one task type.
-const TEST_BOT = { bot: "test-bot", taskType: "answer-question" } as const;
+// The bots that can start a task. Petra is not in the list. The decision point "which bot" chooses one.
+const TASK_BOTS: readonly BotDefinition[] = [testBot];
+
+// The answer of the point "is this message for a task that runs" when the message is for no task.
+const NEW_TASK = "new task";
+
+// One question of Petra to the decider (docs/ARCHITECTURE.md, section 4.7). The decisions package answers it.
+// This package does not import it (requirement C2).
+export interface ToolAsk {
+	sourceRef: string;
+	point: "request-clear" | "which-bot" | "message-for-task";
+	taskId: null;
+	messageSeq: number | null;
+	message: string;
+	options?: readonly string[];
+}
+
+// The code uses the answer only when it is sure (requirement Q4).
+export interface ToolVerdict {
+	answer: string | null;
+	sure: boolean;
+}
+
+export interface ToolDecisions {
+	ask(asks: readonly ToolAsk[]): Promise<ToolVerdict[]>;
+}
 
 export interface PetraToolsDeps {
-	writer: Pick<AccountWriter, "finishEvent">;
+	writer: Pick<AccountWriter & AccountReader, "finishEvent" | "messageSeq">;
+	// The decision points of Petra: one call for each step of the decision sequence (section 4.6).
+	decisions: ToolDecisions;
 	tasks: TaskWriter & TaskReader;
 	work: TaskWork;
 	outbox: Outbox;
@@ -90,21 +119,70 @@ export function petraTools(deps: PetraToolsDeps): PetraToolDefinition[] {
 		return (await tasks.decision(sourceRef, "code")) ?? answer;
 	}
 
-	// The decision point "is this message for a task that runs" (section 4.6). One task that runs gets the message.
-	async function startTask(input: ToolInput): Promise<string> {
-		const route = await decide(input, "route", async () => {
-			const runningTasks = (await tasks.openTasks()).filter((task) => task.status === "running");
-			return runningTasks.length === 1 && runningTasks[0] ? runningTasks[0].id : "new task";
+	// Petra asks the owner when the decider is not sure. The question id names the decision point, so the answer of
+	// the owner can name the decision record (requirement Q6).
+	async function askOwner(input: ToolInput, point: ToolAsk["point"], text: string, options: readonly string[]) {
+		await outbox.tell({
+			sourceRef: `cmd/${input.commandId}/question`,
+			channel: input.channel,
+			body: { type: "question", questionId: `${input.commandId}/${point}`, text, options: [...options] },
 		});
-		if (route !== "new task") {
-			const sourceRef = `cmd/${input.commandId}`;
-			await tasks.addInbox({ taskId: route, sourceRef, kind: "message", text: input.text, at: deps.now() });
-			await reply(input, `I gave your message to the task ${route}.`, route);
-			return `The message went to the inbox of the task ${route}.`;
+		return `I asked the owner: ${text}`;
+	}
+
+	// The asks of one command, about the owner message of the command. The record has its seq, never its text.
+	async function asksOf(input: ToolInput, points: readonly Pick<ToolAsk, "point" | "options">[]): Promise<ToolAsk[]> {
+		const messageSeq = (await deps.writer.messageSeq(`cmd/${input.commandId}/in`)) ?? null;
+		return points.map((point) => ({
+			...point,
+			sourceRef: `cmd/${input.commandId}/${point.point}`,
+			taskId: null,
+			messageSeq,
+			message: input.text,
+		}));
+	}
+
+	// The decision point "is this message for a task that runs" (section 4.6). Returns the task id, "new task", or
+	// undefined when Petra asked the owner which task.
+	async function route(input: ToolInput): Promise<string | undefined> {
+		const running = (await tasks.openTasks()).filter((task) => task.status === "running").map((task) => task.id);
+		if (running.length === 0) return NEW_TASK;
+		const options = [...running, NEW_TASK];
+		const [verdict] = await deps.decisions.ask(await asksOf(input, [{ point: "message-for-task", options }]));
+		if (verdict?.sure && verdict.answer !== null) return verdict.answer;
+		await askOwner(input, "message-for-task", "Which task is your message for?", options);
+		return undefined;
+	}
+
+	// The two points before a new task, in one call: "is the request clear" and "which bot" (requirement Q2).
+	async function chooseBot(input: ToolInput): Promise<BotDefinition | string> {
+		const bots = TASK_BOTS.map((bot) => bot.id);
+		const asks = await asksOf(input, [{ point: "request-clear" }, { point: "which-bot", options: bots }]);
+		const [clear, which] = await deps.decisions.ask(asks);
+		if (!clear?.sure || clear.answer !== "yes") {
+			return askOwner(input, "request-clear", "Your request is not clear to me. What must the task do?", []);
 		}
+		const bot = which?.sure ? TASK_BOTS.find((item) => item.id === which.answer) : undefined;
+		return bot ?? askOwner(input, "which-bot", "Which bot must do this task?", bots);
+	}
+
+	async function startTask(input: ToolInput): Promise<string> {
+		const target = await route(input);
+		if (target === undefined) return "I asked the owner which task the message is for.";
+		if (target !== NEW_TASK) {
+			const sourceRef = `cmd/${input.commandId}`;
+			await tasks.addInbox({ taskId: target, sourceRef, kind: "message", text: input.text, at: deps.now() });
+			await reply(input, `I gave your message to the task ${target}.`, target);
+			return `The message went to the inbox of the task ${target}.`;
+		}
+		const bot = await chooseBot(input);
+		if (typeof bot === "string") return bot;
+		const [taskType] = bot.taskTypes;
+		if (!taskType) throw new Error(`The bot "${bot.id}" has no task type.`);
 		const outcome = await work.startTask({
 			commandId: input.commandId,
-			...TEST_BOT,
+			bot: bot.id,
+			taskType: taskType.name,
 			goal: input.text,
 			replyTo: input.channel,
 		});

@@ -3,10 +3,19 @@
 // The gateway uses the same gate, so a test can call the gate directly or through the gateway.
 import { sendHold, testChannel, testPayment } from "@tensquads/adapters-test";
 import type { ActionAnswer, GatewayCall, OwnerMessage } from "@tensquads/contracts";
-import { type ChannelMessage, type PaymentOrder, ports, type SendOutcome, startSystem } from "@tensquads/core";
+import {
+	type ChannelMessage,
+	type Decider,
+	type PaymentOrder,
+	ports,
+	type SendOutcome,
+	startSystem,
+} from "@tensquads/core";
 import { type Gate, type GateStore, gate } from "@tensquads/gate";
 import type { Gateway } from "@tensquads/gateway";
+import { decisionWriter } from "@tensquads/petra";
 
+import { refundReasons } from "../src/decide.js";
 import { type Harness, harness, harnessGateway, startRunner } from "./task-harness.js";
 
 export const TOOL_LIMIT_MS = 60_000;
@@ -40,8 +49,11 @@ export interface GateSetup {
 export interface GateOptions {
 	answer?: SendOutcome;
 	hold?: boolean;
-	// The task comes from an external event of this customer (section 7.8).
-	customer?: { sender: string; name: string; at: string };
+	// The task comes from an external event of this customer (section 7.8). The default text names the customer.
+	customer?: { sender: string; name: string; at: string; text?: string };
+	// The decider and the shadow decider of the gate (task 09). The default is the fixed decider.
+	decider?: Decider;
+	shadow?: Decider | null;
 }
 
 // The status of an answer of the gate, or "busy".
@@ -55,8 +67,10 @@ export const refund = (amount: number) => ({ amount, to: "cust-1", currency: "US
 
 export async function gateSetup(prefix: string, goal: string, options: GateOptions = {}): Promise<GateSetup> {
 	const h = await harness(prefix);
-	const { work, out, core } = h.build({
+	const { work, out, core, decide } = h.build({
 		checkAction: (commandId, actionId) => current.checkJob(commandId, actionId),
+		...(options.decider ? { decider: options.decider } : {}),
+		...(options.shadow ? { shadow: options.shadow } : {}),
 	});
 	const taskId = `${h.accountId}-task`;
 	const eventId = `event-${h.accountId}`;
@@ -90,6 +104,7 @@ export async function gateSetup(prefix: string, goal: string, options: GateOptio
 			},
 			toolLimitMs: TOOL_LIMIT_MS,
 			now: h.now,
+			reasons: refundReasons(decide, decisionWriter(h.database, h.accountId)),
 		});
 	let current = make();
 	const gw = harnessGateway(h, work, { action: (request) => current.action(request) });
@@ -136,7 +151,7 @@ async function customerEvent(
 			source: "whatsapp",
 			eventType: "message",
 			sender: customer.sender,
-			payload: { text: `I am ${customer.name}.`, name: customer.name },
+			payload: { text: customer.text ?? `I am ${customer.name}.`, name: customer.name },
 		},
 		"not trusted",
 	);

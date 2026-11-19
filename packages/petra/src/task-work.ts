@@ -6,6 +6,7 @@ import type { BotDefinition, Brief, Command, PassClaims, TaskResult } from "@ten
 import type { Queue, Sandbox } from "@tensquads/core";
 
 import type { ActionWriter, StoredAction } from "./action-writer.js";
+import type { DecisionWriter } from "./decision-writer.js";
 import type { Outbox, PetraStorage } from "./outbox.js";
 import type { AttemptRow, TaskReader, TaskRow, TaskWriter } from "./task-writer.js";
 import { answerRef } from "./task-writer.js";
@@ -42,6 +43,8 @@ export interface TaskWorkDeps {
 	checkAction: (commandId: string, actionId: string) => Promise<void>;
 	// The memory (packages/memory). This package does not import it (requirement C2).
 	memory: TaskMemory;
+	// The outcomes of the decisions: what the owner did with a thing that a decision led to (requirement Q6).
+	outcomes: Pick<DecisionWriter, "addOutcome">;
 }
 
 // The part of the memory that the task work uses (docs/ARCHITECTURE.md, section 4.5).
@@ -306,6 +309,16 @@ export function taskWork(deps: TaskWorkDeps): TaskWork {
 			data: { toolCallId: action.toolCallId, contentHash: action.contentHash, status },
 			at: command.at,
 		});
+		// The decisions of the gate about this action have the prefix "action/{taskId}/{toolCallId}/".
+		const ref = `action/${action.taskId}/${action.toolCallId}/`;
+		await deps.outcomes.addOutcome({
+			match: "prefix",
+			ref,
+			commandId: command.commandId,
+			outcome: status,
+			by: "owner",
+			at: command.at,
+		});
 		// A rejected action gets its final status now. The model gets the refusal in the next attempt (G10).
 		if (status === "rejected") {
 			await deps.actions.moveAction({ ...key, from: ["pending"], to: "rejected", at: deps.now() });
@@ -443,6 +456,16 @@ export function taskWork(deps: TaskWorkDeps): TaskWork {
 		},
 
 		async ownerAnswer(command) {
+			// An answer to a question of a decision point of Petra: the question id is "{commandId}/{point}" (Q6).
+			const ref = `cmd/${command.questionId}`;
+			await deps.outcomes.addOutcome({
+				match: "exact",
+				ref,
+				commandId: command.commandId,
+				outcome: "changed",
+				by: "owner",
+				at: command.at,
+			});
 			const taskId = await tasks.questionTask(command.questionId);
 			const task = taskId ? await openTask(taskId) : undefined;
 			if (!task) return false;

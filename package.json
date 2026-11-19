@@ -48,7 +48,8 @@
 		"demo:loop": "node scripts/demo-loop.mjs",
 		"demo:gate": "node scripts/demo-gate.mjs",
 		"demo:trail": "node scripts/demo-trail.mjs",
-		"demo:memory": "node scripts/demo-memory.mjs"
+		"demo:memory": "node scripts/demo-memory.mjs",
+		"demo:decisions": "node scripts/demo-decisions.mjs"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.6.6",

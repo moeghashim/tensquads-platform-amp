@@ -27,6 +27,9 @@
 		"SILENT_MS": "120000",
 		"LAUNCHER_TAKE_WAIT_MS": "2000",
 		"TOOL_LIMIT_MS": "60000",
+		// The time limit of one decider call (task 09), and the second decider of the shadow mode: "none" or "fixed".
+		"DECIDER_TIMEOUT_MS": "5000",
+		"SHADOW_DECIDER": "none",
 		// Only for the tests of the full path: each payment of the test adapter waits this long.
 		"PAYMENT_HOLD_MS": "0"
 	},

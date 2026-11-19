@@ -5,6 +5,8 @@
 import type { ModelAnswer, ModelRequest, Plugin } from "@tensquads/core";
 import { ports } from "@tensquads/core";
 
+import { DECIDER_HEADER } from "./model-decider.js";
+
 const COMMAND = /^\[command (\S+) on (\S+)\] ([\s\S]*)$/;
 
 // The script of a bot task, from the goal of its brief. "read N files" makes N turns, each with one
@@ -106,6 +108,19 @@ function nightAnswer(request: ModelRequest, content: string): ModelAnswer {
 	return answer(request, JSON.stringify(proposals));
 }
 
+// A request of the model decider (task 09). The script answers "yes" to each yes or no question, the first option
+// to each choice, and "1" to each score, each at the probability 0.95.
+function deciderAnswer(request: ModelRequest, content: string): ModelAnswer {
+	const [, json = "{}"] = content.split("\n");
+	const { questions = [] } = JSON.parse(json) as { questions?: { id: string; type: string; options: string[] }[] };
+	const answers = questions.map((question) => ({
+		id: question.id,
+		answer: question.type === "score" ? "1" : question.type === "yes_no" ? "yes" : (question.options[0] ?? ""),
+		probability: 0.95,
+	}));
+	return answer(request, JSON.stringify({ answers }));
+}
+
 function answer(request: ModelRequest, text: string, toolCalls: ModelAnswer["toolCalls"] = []): ModelAnswer {
 	const inputTokens = request.messages.reduce((sum, message) => sum + message.content.length, 0);
 	return { text, toolCalls, provider: "test", model: "rule", usage: { inputTokens, outputTokens: text.length } };
@@ -133,6 +148,7 @@ export function ruleModel(): Plugin {
 				complete: async (request) => {
 					const first = request.messages.find((message) => message.role === "user")?.content ?? "";
 					if (NIGHT.test(first)) return nightAnswer(request, first);
+					if (first.startsWith(DECIDER_HEADER)) return deciderAnswer(request, first);
 					const goal = GOAL.exec(first);
 					return goal?.[1] === undefined ? petraAnswer(request) : botAnswer(request, goal[1], seen);
 				},
