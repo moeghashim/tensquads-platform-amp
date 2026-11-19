@@ -120,3 +120,11 @@ test("M10: for a night job request, the rule model proposes one core item for ea
 		{ text: "never open on Sunday.", evidence: ["cmd/c/in"] },
 	]);
 });
+
+test("E3: the script refund-double asks for two times the amount of the goal; the base script does not change", async () => {
+	const system = await startSystem([ruleModel({ script: "refund-double" })]);
+	const doubled = await system.port(ports.model).complete({ messages: [brief("refund 15 to cust-1")], tools: [] });
+	assert.deepEqual(doubled.toolCalls[0]?.input, { amount: 30, to: "cust-1", currency: "USD" });
+	const base = await complete([brief("refund 15 to cust-1")]);
+	assert.deepEqual(base.toolCalls[0]?.input, { amount: 15, to: "cust-1", currency: "USD" });
+});

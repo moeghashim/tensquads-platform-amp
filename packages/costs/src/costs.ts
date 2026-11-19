@@ -87,8 +87,10 @@ function requestRef(ref: CostRef, requestId: string, unit: string): string {
 
 const attemptOf = (ref: CostRef) => ("attemptNo" in ref ? ref.attemptNo : null);
 
-export function costs(deps: { store: CostStore; now: () => string }): Costs {
+// The provider of the sandbox rows is the launcher, which stands in for boat.dev. A test can give its own name.
+export function costs(deps: { store: CostStore; now: () => string; sandboxProvider?: string }): Costs {
 	const { store } = deps;
+	const sandboxProvider = deps.sandboxProvider ?? "launcher";
 
 	// A cost with no price gets the price 0 and the amount 0. The operations view lists it.
 	async function add(row: Omit<NewCost, "unitPrice" | "amount" | "divided" | "period" | "at">): Promise<void> {
@@ -119,7 +121,7 @@ export function costs(deps: { store: CostStore; now: () => string }): Costs {
 				taskId: ref.taskId,
 				attemptNo: ref.attemptNo,
 				kind: "sandbox",
-				provider: "launcher",
+				provider: sandboxProvider,
 				model: "",
 				units: ms,
 				unit: SANDBOX_UNIT,

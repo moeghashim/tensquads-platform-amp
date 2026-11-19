@@ -26,7 +26,14 @@ type ToolCall = ModelAnswer["toolCalls"][number];
 // The number of times the model gave each tool call of each goal, in this instance of the model.
 type Seen = Map<string, number>;
 
-function actionCall(goal: string, id: string, seen: Seen): ToolCall | undefined {
+// The variants of the script (requirement E3). A version of an eval selects one with the setting TEST_MODEL_SCRIPT.
+// "refund-double" asks for two times the amount of the goal in each refund.
+export const RULE_SCRIPTS = ["base", "refund-double"] as const;
+export type RuleScript = (typeof RULE_SCRIPTS)[number];
+
+const REFUND_FACTOR: Record<RuleScript, number> = { base: 1, "refund-double": 2 };
+
+function actionCall(goal: string, id: string, seen: Seen, script: RuleScript): ToolCall | undefined {
 	const reply = REPLY.exec(goal);
 	if (reply) return { id, name: "send_reply", input: { to: reply[2], text: reply[1] } };
 	const refund = REFUND.exec(goal);
@@ -34,7 +41,7 @@ function actionCall(goal: string, id: string, seen: Seen): ToolCall | undefined 
 	const key = `${goal}\n${id}`;
 	const times = seen.get(key) ?? 0;
 	seen.set(key, times + 1);
-	const amount = Number(times > 0 && refund[2] !== undefined ? refund[2] : refund[1]);
+	const amount = Number(times > 0 && refund[2] !== undefined ? refund[2] : refund[1]) * REFUND_FACTOR[script];
 	return { id, name: "refund", input: { amount, to: refund[3] ?? "cust-1", currency: "USD" } };
 }
 
@@ -49,24 +56,24 @@ function appendCall(step: number, appends: number): ToolCall | undefined {
 const countIn = (goal: string, pattern: RegExp) => Number(pattern.exec(goal)?.[1] ?? 0);
 
 // The tool call of the step, or undefined after the last tool call of the script.
-function scriptCall(goal: string, step: number, seen: Seen): ToolCall | undefined {
+function scriptCall(goal: string, step: number, seen: Seen, script: RuleScript): ToolCall | undefined {
 	const appends = countIn(goal, /\bappend (\d+) lines?\b/i);
-	return appends > 0 ? appendCall(step, appends) : readCall(goal, step, seen);
+	return appends > 0 ? appendCall(step, appends) : readCall(goal, step, seen, script);
 }
 
 // The read script: an optional question, N reads, then the action of the goal.
-function readCall(goal: string, step: number, seen: Seen): ToolCall | undefined {
+function readCall(goal: string, step: number, seen: Seen, script: RuleScript): ToolCall | undefined {
 	const reads = countIn(goal, /\bread (\d+) files?\b/i);
 	const asks = /\bask\b/i.test(goal) ? 1 : 0;
 	const id = `call-${step}`;
 	if (step <= asks) return { id, name: "ask_question", input: { text: "Which day?" } };
 	if (step <= asks + reads) return { id, name: "read_file", input: { path: "shop/hours.txt" } };
-	return step === asks + reads + 1 ? actionCall(goal, id, seen) : undefined;
+	return step === asks + reads + 1 ? actionCall(goal, id, seen, script) : undefined;
 }
 
-function botAnswer(request: ModelRequest, goal: string, seen: Seen): Answer {
+function botAnswer(request: ModelRequest, goal: string, seen: Seen, script: RuleScript): Answer {
 	const results = request.messages.filter((message) => message.role === "tool");
-	const call = scriptCall(goal, results.length + 1, seen);
+	const call = scriptCall(goal, results.length + 1, seen, script);
 	if (call) return answer(request, "", [call]);
 	const users = request.messages.filter((message) => message.role === "user").slice(1);
 	const outputs = results.map((message) => (JSON.parse(message.content) as { output: string }).output);
@@ -144,7 +151,9 @@ function petraAnswer(request: ModelRequest): Answer {
 	return answer(request, "", [call]);
 }
 
-export function ruleModel(): Plugin {
+// The hold makes each answer wait, so a test of the full path can see what occurs while a model call runs.
+export function ruleModel(options: { script?: RuleScript; hold?: () => Promise<void> } = {}): Plugin {
+	const script = options.script ?? "base";
 	return {
 		name: "model-rule",
 		provides: [ports.model],
@@ -157,12 +166,14 @@ export function ruleModel(): Plugin {
 				if (NIGHT.test(first)) return nightAnswer(request, first);
 				if (first.startsWith(DECIDER_HEADER)) return deciderAnswer(request, first);
 				const goal = GOAL.exec(first);
-				return goal?.[1] === undefined ? petraAnswer(request) : botAnswer(request, goal[1], seen);
+				return goal?.[1] === undefined ? petraAnswer(request) : botAnswer(request, goal[1], seen, script);
 			};
 			ctx.provide(ports.model, {
 				complete: async (request) => {
 					requests += 1;
-					return { ...reply(request), requestId: `rule-${requests}` };
+					const id = requests;
+					await options.hold?.();
+					return { ...reply(request), requestId: `rule-${id}` };
 				},
 			});
 		},

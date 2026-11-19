@@ -33,6 +33,24 @@ test("G2: a refund of $15 inside a limit of $20 goes out with no approval", asyn
 	assert.equal(request?.type === "approval_request" && request.limit, 20_000_000);
 });
 
+test("K3 and G2: a refund inside the limit goes out with no approval, and the trail records the rule that matched", async () => {
+	const s = await gateSetup("k3rule", "refund 15 to cust-1");
+	await s.work.setRule(setRule(`${s.taskId}-rule`));
+	assert.equal(statusOf(await s.action({ content: refund(15) })), "done");
+	const rows = (await s.h.tasks.taskTrail(s.taskId)).filter((row) => row.kind === "action");
+	assert.equal(rows.length, 1);
+	assert.deepEqual(rows[0]?.data, {
+		toolCallId: "call-1",
+		tool: "refund",
+		rule: `${s.taskId}-rule`,
+		limit: 20_000_000,
+	});
+	assert.equal(rows[0]?.summary, `The rule ${s.taskId}-rule allows the action ${s.taskId}/call-1 with no approval.`);
+	// An action above the limit matches no rule that allows it. It gets no such row.
+	await s.action({ toolCallId: "call-2", content: refund(25) });
+	assert.equal((await s.h.tasks.taskTrail(s.taskId)).filter((row) => row.kind === "action").length, 1);
+});
+
 test("G2: the newest active money_limit rule wins, and a money action with no rule needs an approval", async () => {
 	const s = await gateSetup("g2b", "refund 15 to cust-1");
 	assert.deepEqual(await s.action({ content: refund(15) }), { status: "wait" });

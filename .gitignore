@@ -31,3 +31,6 @@ apps/*/node_modules/
 .projects/vault/
 .projects/cache/
 .projects/state.local.json
+
+# The list for review of the person grader of the evals (task 11).
+evals/review/

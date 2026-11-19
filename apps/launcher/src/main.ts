@@ -1,12 +1,9 @@
 // The launcher. It starts one runner process for each sandbox request. It stands in for boat.dev (section 3.6).
 // Settings: WORKER_URL and LAUNCHER_KEY. RUNNER_COMMAND is optional: a shell command that starts one runner.
 import { spawn } from "node:child_process";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { type RunnerChild, startLauncher } from "./launcher.js";
-
-const RUNNER_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "runner");
+import { runnerSpawn } from "./runner-spawn.js";
 
 function log(line: string): void {
 	console.error(`launcher: ${line}`);
@@ -27,29 +24,21 @@ const launcherKey = setting("LAUNCHER_KEY");
 const runnerCommand = process.env.RUNNER_COMMAND;
 
 // The runner gets the pass and the address of the Worker as its only inputs, plus PATH and the commit.
-function runnerEnv(pass: string): Record<string, string> {
-	const env: Record<string, string> = { PASS: pass, WORKER_URL: workerUrl };
-	for (const name of ["PATH", "RUNNER_COMMIT"] as const) {
-		const value = process.env[name];
-		if (value !== undefined) env[name] = value;
-	}
-	return env;
-}
-
+// It starts in a new temp directory (requirement E6).
 function spawnRunner(pass: string): RunnerChild {
-	const env = runnerEnv(pass);
+	const how = runnerSpawn(pass, { workerUrl, env: process.env, runnerCommand });
 	// Each runner is the leader of a new process group. Thus a kill stops the runner and each of its children.
-	const child =
-		runnerCommand === undefined || runnerCommand === ""
-			? spawn(process.execPath, ["--import", "tsx", "src/main.ts"], {
-					cwd: RUNNER_DIR,
-					env,
-					stdio: "inherit",
-					detached: true,
-				})
-			: spawn(runnerCommand, { shell: true, env, stdio: "inherit", detached: true });
+	const child = spawn(how.command, how.args, {
+		cwd: how.cwd,
+		env: how.env,
+		shell: how.shell,
+		stdio: "inherit",
+		detached: true,
+	});
+	child.once("exit", how.cleanUp);
 	const exited = new Promise<number>((resolve) => {
 		child.once("error", (error) => {
+			how.cleanUp();
 			log(`The runner did not start: ${error.message}`);
 			resolve(1);
 		});

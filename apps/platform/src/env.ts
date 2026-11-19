@@ -2,11 +2,13 @@
 import type { SqlConnections } from "@tensquads/core";
 import type { JobMessage } from "@tensquads/petra";
 
+import { type EvalSettings, type EvalVars, evalSettings, SettingError } from "./eval-settings.js";
 import type { PetraObject } from "./petra-object.js";
 import type { PlatformDurableObject } from "./platform-object.js";
 import type { ShadowDecider } from "./plugins/petra.js";
 
-export interface Env {
+// The settings of an eval Worker are in EvalVars (task 11).
+export interface Env extends EvalVars {
 	PETRA: DurableObjectNamespace<PetraObject>;
 	PLATFORM: DurableObjectNamespace<PlatformDurableObject>;
 	// The R2 bucket of the copies of the journal and, later, of the drafts (section 7.4).
@@ -52,12 +54,10 @@ export interface Settings {
 	shadowDecider: ShadowDecider;
 	creditValueMicros: number;
 	takeTimeMs: number;
+	evals: EvalSettings;
 }
 
-// A setting that is missing or not valid. The message names the setting, never its value (section 10).
-export class SettingError extends Error {
-	override name = "SettingError";
-}
+export { SettingError };
 
 type SettingName =
 	| "PASS_KEY"
@@ -100,6 +100,7 @@ export function readSettings(env: Env): Settings {
 		shadowDecider: shadowDeciderOf(env.SHADOW_DECIDER),
 		creditValueMicros: milliseconds(env, "CREDIT_VALUE_MICROS", "millionths of a US dollar"),
 		takeTimeMs: milliseconds(env, "LAUNCHER_TAKE_TIME_MS"),
+		evals: evalSettings(env),
 	};
 }
 

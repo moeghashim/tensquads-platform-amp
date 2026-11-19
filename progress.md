@@ -793,3 +793,19 @@ Append-only learning log for commits and deploys. Add new entries only at the en
   - package.json
   - package-lock.json
   - docs/evidence/10-costs-and-super-admin
+## 2026-11-19T12:12:45.358Z
+- Trigger: commit
+- Learning: An eval run ends only when no attempt runs, the launcher reported each exit, every event is done and Petra's turn has ended; earlier, the report missed cost rows. A test must not depend on rows that another program leaves in a shared database.
+- Context: feat(evals): add the eval runner, graders, comparison and five cases
+- Branch: 11-evals
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - apps
+  - packages
+  - evals
+  - scripts
+  - package.json
+  - package-lock.json
+  - .gitignore
+  - tsconfig.json
+  - docs/evidence/11-evals

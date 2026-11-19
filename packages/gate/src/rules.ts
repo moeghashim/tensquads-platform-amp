@@ -9,7 +9,10 @@ export const MONEY_LIMIT = "money_limit";
 // The amounts of a rule are in millionths of a US dollar.
 const MICROS = 1_000_000;
 
-export type RuleCheck = { needs: "nothing" } | { needs: "approval"; ruleId: string | null; limit: number | null };
+// "nothing" names the rule that allows the action, or null when the kind needs no rule.
+export type RuleCheck =
+	| { needs: "nothing"; ruleId: string | null; limit: number | null }
+	| { needs: "approval"; ruleId: string | null; limit: number | null };
 
 function maxAmountOf(params: Record<string, unknown>): number | null {
 	const { maxAmount } = params;
@@ -38,7 +41,7 @@ async function moneyCheck(store: GateStore, content: Record<string, unknown>, ch
 	const amount = Math.round(Number(content.amount) * MICROS);
 	// Above the limit, the owner always decides. The decider is not asked.
 	const inLimit = rule !== undefined && limit !== null && amount <= limit;
-	if (inLimit && (await reasonsCheck(rule.params, check))) return { needs: "nothing" };
+	if (inLimit && (await reasonsCheck(rule.params, check))) return { needs: "nothing", ruleId: rule.ruleId, limit };
 	return { needs: "approval", ruleId: rule?.ruleId ?? null, limit };
 }
 
@@ -51,5 +54,5 @@ export function ruleCheck(
 ): Promise<RuleCheck> {
 	if (kind === "money") return moneyCheck(store, content, check);
 	if (kind === "public") return Promise.resolve({ needs: "approval", ruleId: null, limit: null });
-	return Promise.resolve({ needs: "nothing" });
+	return Promise.resolve({ needs: "nothing", ruleId: null, limit: null });
 }

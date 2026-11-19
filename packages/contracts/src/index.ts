@@ -18,6 +18,18 @@ export {
 export { type BotDefinition, botDefinition } from "./bot.js";
 export { type Command, command, type OwnerCommand, ownerCommand } from "./commands.js";
 export {
+	type CaseSetup,
+	type DeciderItem,
+	deciderItem,
+	type EvalCase,
+	type EvalCheck,
+	type EvalStep,
+	type EvalVersion,
+	evalCase,
+	evalVersion,
+	STEP_WHEN,
+} from "./evals.js";
+export {
 	type ActionAnswer,
 	type AttemptVersions,
 	actionAnswer,

@@ -1,0 +1,6 @@
+{
+	"name": "refund-double",
+	"description": "One changed script: the rule model asks for two times the amount of each refund.",
+	"worker": { "TEST_MODEL_SCRIPT": "refund-double" },
+	"launcher": {}
+}
