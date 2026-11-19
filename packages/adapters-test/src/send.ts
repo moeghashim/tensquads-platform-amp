@@ -9,6 +9,8 @@ export interface SendOptions {
 	hold?: () => Promise<void>;
 	// Gets one line for each send, for example to show the sends of a Worker in its log.
 	log?: (line: string) => void;
+	// The mode with no outgoing action (requirement E2): the line of each send has what the port would send.
+	record?: boolean;
 }
 
 // Records each item and gives the configured outcome. The status of an id that was never sent is "not_sent".
@@ -18,7 +20,9 @@ function recorder<T extends { id: string }>(name: string, list: T[], options: Se
 	return {
 		send: async (item: T): Promise<SendOutcome> => {
 			list.push({ ...item });
-			options.log?.(`${name}: send ${item.id}`);
+			options.log?.(
+				options.record ? `${name}: would send ${item.id} ${JSON.stringify(item)}` : `${name}: send ${item.id}`,
+			);
 			outcomes.set(item.id, answer);
 			await options.hold?.();
 			return answer;

@@ -1,0 +1,6 @@
+{
+	"name": "base",
+	"description": "The plug-in lists of the Worker as in wrangler.jsonc, with the base script of the rule model.",
+	"worker": { "TEST_MODEL_SCRIPT": "base" },
+	"launcher": {}
+}

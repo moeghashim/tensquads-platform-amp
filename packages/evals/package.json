@@ -1,0 +1,19 @@
+{
+	"name": "@tensquads/evals",
+	"version": "0.0.2",
+	"private": true,
+	"description": "The base for evals: the cases, the graders, the report, the comparison of two versions, the case from a trail and the eval of the decider.",
+	"license": "MIT",
+	"type": "module",
+	"exports": "./src/index.ts",
+	"scripts": {
+		"test": "tsx --test \"test/**/*.test.ts\""
+	},
+	"engines": {
+		"node": "26.x"
+	},
+	"dependencies": {
+		"@tensquads/contracts": "0.0.2",
+		"@tensquads/core": "0.0.2"
+	}
+}

@@ -50,7 +50,8 @@
 		"demo:trail": "node scripts/demo-trail.mjs",
 		"demo:memory": "node scripts/demo-memory.mjs",
 		"demo:decisions": "node scripts/demo-decisions.mjs",
-		"demo:costs": "node scripts/demo-costs.mjs"
+		"demo:costs": "node scripts/demo-costs.mjs",
+		"evals": "tsx apps/evals/src/main.ts"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.6.6",

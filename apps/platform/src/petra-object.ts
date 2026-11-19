@@ -94,6 +94,7 @@ export class PetraObject extends DurableObject<Env> {
 				platform: this.platform(),
 				paymentHoldMs: settings.paymentHoldMs,
 				shadowDecider: settings.shadowDecider,
+				evals: settings.evals,
 			};
 			const system = await startSystem(petraPlugins(petraConnections(this.env), bindings));
 			const database = system.port(ports.database);
@@ -167,6 +168,9 @@ export class PetraObject extends DurableObject<Env> {
 					// A model call of Petra in a command has the key of the command (section 7.1, requirement S1).
 					const commandId = conversationCommand(messages);
 					if (commandId) await costBook.modelCall({ cause: `cmd/${commandId}`, taskId: null }, answer);
+					// An answer with no tool call ends the turn of Petra. Its cost rows are written. The runner of evals
+					// reads this line, because the command is done before this last model call (task 11).
+					if (commandId && answer.toolCalls.length === 0) console.log(`petra: turn ended ${commandId}`);
 					return answer;
 				},
 				wakeChanged: (at) => void this.arm(at),

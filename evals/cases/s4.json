@@ -1,0 +1,21 @@
+{
+	"id": "S4",
+	"source": "Plan Part 12, case S4. Adapted to the test bot: the channel answers \"unknown\", as when the network drops during the send. A reply is a public action, so the owner approves it first.",
+	"tags": ["action", "once"],
+	"setup": {
+		"services": { "channel": "unknown" }
+	},
+	"input": [
+		{ "type": "OwnerMessage", "text": "Please reply hello to cust-1" },
+		{ "type": "ApprovalDecision", "decision": "approve", "when": "when the task waits" }
+	],
+	"expected": {
+		"text": "The reply goes out exactly one time. The gate does not send it again, and Petra tells the owner.",
+		"checks": [
+			{ "check": "sends", "port": "channel", "count": 1 },
+			{ "check": "action", "tool": "send_reply", "status": "not_confirmed" },
+			{ "check": "messages", "type": "action_not_confirmed", "count": 1 }
+		]
+	},
+	"grader": { "kind": "code" }
+}

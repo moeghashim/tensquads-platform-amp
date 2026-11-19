@@ -1,0 +1,23 @@
+{
+	"id": "R18",
+	"source": "Plan Part 12, case R18. Adapted to the test bot: the question of the customer is an owner message, and the bot reads two files so that the forget comes during the task.",
+	"tags": ["memory", "forget"],
+	"setup": {
+		"memory": [{ "page": "customers", "text": "We have parking behind the building." }]
+	},
+	"input": [
+		{ "type": "OwnerMessage", "text": "Where is the parking? Please read 2 files." },
+		{ "type": "ForgetFact", "fact": 0, "when": "after the first tool call" }
+	],
+	"expected": {
+		"text": "The answer does not use the fact. The trail shows that the fact went out of the context, and the last check passed.",
+		"checks": [
+			{ "check": "trail", "kind": "memory", "field": "factId" },
+			{ "check": "forget list", "fact": 0 },
+			{ "check": "fact not in model requests after forget", "fact": 0 },
+			{ "check": "last check stands" },
+			{ "check": "task status", "status": "done" }
+		]
+	},
+	"grader": { "kind": "code" }
+}

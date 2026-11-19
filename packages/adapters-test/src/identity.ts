@@ -19,7 +19,21 @@ const byToken = new Map<string, Principal>([
 	[TEST_TOKENS.superAdmin, TEST_PRINCIPALS.superAdmin],
 ]);
 
-export function testIdentity(): Plugin {
+// An eval account (requirement E2) has an id that starts with "eval-". With the option evalOwners, the token
+// "eval-owner:{accountId}" gives the owner of that account. Each run of an eval case thus has a new account.
+const EVAL_ACCOUNT = "eval-";
+const EVAL_TOKEN = "eval-owner:";
+
+export const evalOwnerToken = (accountId: string): string => `${EVAL_TOKEN}${accountId}`;
+export const evalOwnerRef = (accountId: string): string => `owner-${accountId}`;
+
+function evalOwner(token: string): Principal | undefined {
+	const accountId = token.startsWith(EVAL_TOKEN) ? token.slice(EVAL_TOKEN.length) : "";
+	if (!accountId.startsWith(EVAL_ACCOUNT)) return undefined;
+	return { kind: "owner", ownerId: evalOwnerRef(accountId), accountId };
+}
+
+export function testIdentity(options: { evalOwners?: boolean } = {}): Plugin {
 	return {
 		name: "identity-test",
 		provides: [ports.identity],
@@ -27,7 +41,7 @@ export function testIdentity(): Plugin {
 		apply: (ctx) => {
 			ctx.provide(ports.identity, {
 				whoIs: async (token) => {
-					const principal = byToken.get(token);
+					const principal = byToken.get(token) ?? (options.evalOwners ? evalOwner(token) : undefined);
 					return principal ? { ...principal } : undefined;
 				},
 			});

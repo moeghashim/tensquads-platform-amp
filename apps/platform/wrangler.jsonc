@@ -34,7 +34,21 @@
 		"CREDIT_VALUE_MICROS": "50000",
 		"LAUNCHER_TAKE_TIME_MS": "30000",
 		// Only for the tests of the full path: each payment of the test adapter waits this long.
-		"PAYMENT_HOLD_MS": "0"
+		"PAYMENT_HOLD_MS": "0",
+		// Only for the Worker of an eval (task 11). The eval runner sets them for each version and each case.
+		// "yes": the channel and the payment only record what they would send, and no action goes out.
+		"NO_OUTGOING_ACTION": "no",
+		// "yes": the test identity knows the owner of each eval account.
+		"EVAL_OWNERS": "no",
+		// The outcome of each send of the test adapters: "confirmed", "not_sent" or "unknown".
+		"CHANNEL_OUTCOME": "confirmed",
+		"PAYMENT_OUTCOME": "confirmed",
+		// The answers of the fixed decider for each decision point, as JSON.
+		"FIXED_DECIDER_POINTS": "{}",
+		// The variant of the script of the rule model: "base" or "refund-double".
+		"TEST_MODEL_SCRIPT": "base",
+		// Only for the tests of the full path: each answer of the rule model waits this long.
+		"MODEL_HOLD_MS": "0"
 	},
 	"observability": {
 		"enabled": true

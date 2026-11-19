@@ -113,6 +113,18 @@ export interface MemoryStore extends ProposalStore {
 export interface MemoryTasks {
 	openTasks(): Promise<{ id: string; brief: { facts: readonly { id: string }[] } }[]>;
 	addInbox(row: { taskId: string; sourceRef: string; kind: "forget"; factId: string; at: string }): Promise<void>;
+	// One row of the trail of a task. A row that is there does not change.
+	addTrail(row: {
+		sourceRef: string;
+		taskId: string;
+		attemptNo: null;
+		turnNo: null;
+		kind: "memory";
+		actor: string;
+		summary: string;
+		data: { factId: string };
+		at: string;
+	}): Promise<void>;
 }
 
 // The message writer of Petra. It writes each message one time, by its source reference.
@@ -313,6 +325,18 @@ export function memory(deps: MemoryDeps): Memory {
 					sourceRef: `cmd/${forget.commandId}/forget`,
 					kind: "forget",
 					factId,
+					at,
+				});
+				// The trail shows that the fact went out of the context of the task (plan, case R18).
+				await deps.tasks.addTrail({
+					sourceRef: `cmd/${forget.commandId}/forget/${task.id}`,
+					taskId: task.id,
+					attemptNo: null,
+					turnNo: null,
+					kind: "memory",
+					actor: "owner",
+					summary: `The fact ${factId} went out of the context of the task.`,
+					data: { factId },
 					at,
 				});
 			}

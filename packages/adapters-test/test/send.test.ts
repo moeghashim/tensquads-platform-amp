@@ -50,3 +50,22 @@ test("G9: a held payment is recorded at once, and answers only after the release
 	release();
 	assert.equal(await sending, "confirmed");
 });
+
+test("E2: in the mode with no outgoing action, each port records what it would send and logs it", async () => {
+	const lines: string[] = [];
+	const log = (line: string) => lines.push(line);
+	const sent: ChannelMessage[] = [];
+	const paid: PaymentOrder[] = [];
+	const channel = (await startSystem([testChannel({ sent, log, record: true })])).port(ports.channel);
+	const payment = (await startSystem([testPayment({ paid, log, record: true, answer: "unknown" })])).port(
+		ports.payment,
+	);
+	assert.equal(await channel.send({ id: "t/call-1", to: "cust-1", text: "Hello." }), "confirmed");
+	assert.equal(await payment.pay({ id: "t/call-2", to: "cust-1", amount: 15, currency: "USD" }), "unknown");
+	assert.equal(sent.length, 1);
+	assert.equal(paid.length, 1);
+	assert.deepEqual(lines, [
+		'channel-test: would send t/call-1 {"id":"t/call-1","to":"cust-1","text":"Hello."}',
+		'payment-test: would send t/call-2 {"id":"t/call-2","to":"cust-1","amount":15,"currency":"USD"}',
+	]);
+});

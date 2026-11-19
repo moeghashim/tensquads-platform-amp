@@ -349,6 +349,33 @@ test("M9: a forget goes to the forget list of each open task whose brief has the
 	assert.deepEqual(inbox.forget, [id]);
 });
 
+test("R18 and M9: a forget during a task writes one memory row in the trail of the task: the fact went out of the context", async () => {
+	const h = await harness("r18");
+	const built = h.build();
+	await remember(h, built, "r1", "customers", "We have parking behind the building.");
+	const id = factId(h, "r1");
+	for (const [name, goal] of [
+		["t1", "Where is the parking?"],
+		["t2", "Order more beans."],
+	] as const) {
+		await built.work.startTask({
+			commandId: u(h, name),
+			bot: testBot.id,
+			taskType: "answer-question",
+			goal,
+			replyTo: "chat",
+		});
+	}
+	await built.memory.forgetFact({ commandId: u(h, "f1"), factId: id, at: AT });
+	const memoryRows = async (name: string) =>
+		(await h.tasks.taskTrail(u(h, name))).filter((row) => row.kind === "memory");
+	const [row, ...more] = await memoryRows("t1");
+	assert.deepEqual(more, []);
+	assert.equal(row?.summary, `The fact ${id} went out of the context of the task.`);
+	assert.deepEqual(row?.data, { factId: id });
+	assert.deepEqual(await memoryRows("t2"), [], "A task without the fact gets no row.");
+});
+
 test("M9: the check of a result that has the text of a forgotten fact answers continue", async () => {
 	const h = await harness("m9c");
 	const built = h.build();

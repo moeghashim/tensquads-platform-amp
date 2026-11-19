@@ -20,13 +20,15 @@ import { platformPlugins } from "./plugins/platform.js";
 export { PetraObject } from "./petra-object.js";
 export { PlatformDurableObject } from "./platform-object.js";
 
-// The Worker uses only the identity port. It starts the list with no database connection.
-const system = startSystem(platformPlugins({}));
+// The Worker uses only the identity port. It starts the list with no database connection, at the first call,
+// because the list needs the settings.
+let system: ReturnType<typeof startSystem> | undefined;
 
 const bearer = (request: Request) => request.headers.get("authorization")?.match(/^Bearer (.+)$/)?.[1];
 
-async function whoCalls(request: Request): Promise<Principal | undefined> {
+async function whoCalls(request: Request, settings: Settings): Promise<Principal | undefined> {
 	const token = bearer(request);
+	system ??= startSystem(platformPlugins({}, { evalOwners: settings.evals.evalOwners }));
 	return token ? (await system).port(ports.identity).whoIs(token) : undefined;
 }
 
@@ -229,8 +231,8 @@ const MACHINE_ROUTES: Record<string, (request: Request, env: Env, settings: Sett
 	"POST /v1/launcher/report": launcherReport,
 };
 
-async function personCall(request: Request, env: Env, url: URL): Promise<Response> {
-	const caller = await whoCalls(request);
+async function personCall(request: Request, env: Env, url: URL, settings: Settings): Promise<Response> {
+	const caller = await whoCalls(request, settings);
 	if (!caller) return unauthorized();
 	const answer = caller.kind === "owner" ? ownerCall(request, env, url, caller) : adminCall(request, env, url, caller);
 	return (await answer) ?? notFound();
@@ -240,7 +242,7 @@ async function route(request: Request, env: Env): Promise<Response> {
 	const url = new URL(request.url);
 	const settings = readSettings(env);
 	const machine = MACHINE_ROUTES[`${request.method} ${url.pathname}`];
-	return machine ? machine(request, env, settings) : personCall(request, env, url);
+	return machine ? machine(request, env, settings) : personCall(request, env, url, settings);
 }
 
 export default {

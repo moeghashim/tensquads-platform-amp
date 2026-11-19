@@ -200,6 +200,22 @@ export function gate(deps: GateDeps): Gate {
 		return refused(`The action ${idOf(row)} came again with a different content. The gate refused it.`);
 	}
 
+	// A rule of the owner allows the action with no approval. The trail records the rule that matched (case K3).
+	async function ruleMatched(row: ActionRow, check: RuleCheck): Promise<void> {
+		if (check.ruleId === null) return;
+		await tasks.addTrail({
+			sourceRef: `action/${idOf(row)}/rule`,
+			taskId: row.taskId,
+			attemptNo: row.attemptNo,
+			turnNo: null,
+			kind: "action",
+			actor: "gate",
+			summary: `The rule ${check.ruleId} allows the action ${idOf(row)} with no approval.`,
+			data: { toolCallId: row.toolCallId, tool: row.tool, rule: check.ruleId, limit: check.limit },
+			at: deps.now(),
+		});
+	}
+
 	async function fresh(request: ActionRequest, kind: ActionKind, hash: string): Promise<ActionAnswer> {
 		const { taskId, toolCallId } = request;
 		const reasons = deps.reasons;
@@ -220,7 +236,10 @@ export function gate(deps: GateDeps): Gate {
 		const row = await store.action(request.taskId, request.toolCallId);
 		if (!row) throw new Error(`The action ${actionIdOf(request.taskId, request.toolCallId)} was not written.`);
 		if (!wrote) return row.contentHash === hash ? again(row, request.attemptNo) : refuseChanged(row, request, hash);
-		if (check.needs === "nothing") return send(row, request.attemptNo);
+		if (check.needs === "nothing") {
+			await ruleMatched(row, check);
+			return send(row, request.attemptNo);
+		}
 		return askOwner(row, { ruleId: check.ruleId, limit: check.limit });
 	}
 

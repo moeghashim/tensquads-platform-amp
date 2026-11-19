@@ -37,8 +37,9 @@ function storeWith(maxAmount: number | undefined): GateStore {
 
 test("G2: a money action at or below the limit needs nothing; above it, or with no rule, it needs an approval", async () => {
 	const limit20 = storeWith(20_000_000);
-	assert.deepEqual(await ruleCheck(limit20, "money", { amount: 15 }), { needs: "nothing" });
-	assert.deepEqual(await ruleCheck(limit20, "money", { amount: 20 }), { needs: "nothing" });
+	const allowed = { needs: "nothing", ruleId: "rule-1", limit: 20_000_000 };
+	assert.deepEqual(await ruleCheck(limit20, "money", { amount: 15 }), allowed);
+	assert.deepEqual(await ruleCheck(limit20, "money", { amount: 20 }), allowed);
 	assert.deepEqual(await ruleCheck(limit20, "money", { amount: 20.01 }), {
 		needs: "approval",
 		ruleId: "rule-1",
@@ -58,5 +59,5 @@ test("G3: a public action always needs an approval, and the kind other needs not
 		ruleId: null,
 		limit: null,
 	});
-	assert.deepEqual(await ruleCheck(limit20, "other", {}), { needs: "nothing" });
+	assert.deepEqual(await ruleCheck(limit20, "other", {}), { needs: "nothing", ruleId: null, limit: null });
 });

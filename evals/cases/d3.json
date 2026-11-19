@@ -1,0 +1,23 @@
+{
+	"id": "D3",
+	"source": "Plan Part 12, case D3. Adapted to the test bot: the refund request of the customer is an owner message with a goal that the rule model knows.",
+	"tags": ["approval", "money"],
+	"setup": {
+		"rules": [{ "kind": "money_limit", "params": { "maxAmount": 20000000 } }]
+	},
+	"input": [
+		{ "type": "OwnerMessage", "text": "Please refund 60 to cust-1" },
+		{ "type": "ApprovalDecision", "decision": "approve", "when": "when the task waits" }
+	],
+	"expected": {
+		"text": "Petra shows one approval request with the amount of 60. The refund goes out only after the owner approves it.",
+		"checks": [
+			{ "check": "messages", "type": "approval_request", "count": 1 },
+			{ "check": "action", "tool": "refund", "status": "done", "amount": 60 },
+			{ "check": "send after approval" },
+			{ "check": "sends", "port": "payment", "count": 1 },
+			{ "check": "task status", "status": "done" }
+		]
+	},
+	"grader": { "kind": "code" }
+}

@@ -1,0 +1,18 @@
+{
+	"id": "P2",
+	"source": "Plan Part 12, case P2. Adapted to the test bot: the fixed decider answers \"no\" to the point \"request-clear\", so the request of the owner is not clear.",
+	"tags": ["petra", "decision"],
+	"setup": {
+		"decider": { "request-clear": { "answer": "no" } }
+	},
+	"input": [{ "type": "OwnerMessage", "text": "Fix my online stuff" }],
+	"expected": {
+		"text": "Petra asks one clear question before she starts any task. No bot runs, and no credits are taken.",
+		"checks": [
+			{ "check": "messages", "type": "question", "count": 1 },
+			{ "check": "tasks", "count": 0 },
+			{ "check": "credits taken", "credits": 0 }
+		]
+	},
+	"grader": { "kind": "code" }
+}

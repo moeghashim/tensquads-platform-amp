@@ -1,0 +1,20 @@
+{
+	"id": "K3",
+	"source": "Plan Part 12, case K3. Adapted to the test bot: the refund request of the customer is an owner message with a goal that the rule model knows.",
+	"tags": ["rule", "money"],
+	"setup": {
+		"rules": [{ "kind": "money_limit", "params": { "maxAmount": 20000000 } }]
+	},
+	"input": [{ "type": "OwnerMessage", "text": "Please refund 15 to cust-1" }],
+	"expected": {
+		"text": "The refund of 15 follows the rule of the owner with no approval. The trail records the rule that matched.",
+		"checks": [
+			{ "check": "messages", "type": "approval_request", "count": 0 },
+			{ "check": "action", "tool": "refund", "status": "done", "amount": 15 },
+			{ "check": "sends", "port": "payment", "count": 1 },
+			{ "check": "trail", "kind": "action", "field": "rule" },
+			{ "check": "task status", "status": "done" }
+		]
+	},
+	"grader": { "kind": "code" }
+}

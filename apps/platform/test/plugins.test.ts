@@ -6,6 +6,7 @@ import { testBot } from "@tensquads/bots";
 import { checker } from "@tensquads/checker";
 import { type Plugin, type PortKey, ports, startSystem } from "@tensquads/core";
 
+import { type EvalVars, evalSettings } from "../src/eval-settings.js";
 import { petraPlugins as petraList } from "../src/plugins/petra.js";
 import { platformPlugins as platformList } from "../src/plugins/platform.js";
 
@@ -197,4 +198,59 @@ test("Q8: the model decider replaces the row of the fixed decider, and no other 
 	assert.equal(after.port(ports.shadowDecider), null, "The row of the shadow mode does not change.");
 	await before.stop();
 	await after.stop();
+});
+
+const settingsOf = (vars: EvalVars) => ({ evals: evalSettings(vars) });
+
+test("E2: with no eval settings, the Worker keeps its behaviour: the ports send, and the defaults stay", () => {
+	assert.deepEqual(settingsOf({}).evals, {
+		noOutgoingAction: false,
+		evalOwners: false,
+		channelOutcome: "confirmed",
+		paymentOutcome: "confirmed",
+		deciderPoints: {},
+		modelScript: "base",
+		modelHoldMs: 0,
+	});
+	assert.throws(() => settingsOf({ MODEL_HOLD_MS: "-1" }), /MODEL_HOLD_MS/);
+	assert.throws(() => settingsOf({ NO_OUTGOING_ACTION: "maybe" }), /NO_OUTGOING_ACTION/);
+	assert.throws(() => settingsOf({ CHANNEL_OUTCOME: "lost" }), /CHANNEL_OUTCOME/);
+	assert.throws(() => settingsOf({ FIXED_DECIDER_POINTS: "[1]" }), /FIXED_DECIDER_POINTS/);
+	assert.throws(() => settingsOf({ TEST_MODEL_SCRIPT: "other" }), /TEST_MODEL_SCRIPT/);
+});
+
+test("E2 and E3: the settings of an eval Worker give the rows of Petra: no outgoing action, the outcomes, the fixed answers and the script", async () => {
+	const { evals } = settingsOf({
+		NO_OUTGOING_ACTION: "yes",
+		EVAL_OWNERS: "yes",
+		CHANNEL_OUTCOME: "unknown",
+		PAYMENT_OUTCOME: "not_sent",
+		FIXED_DECIDER_POINTS: '{"request-clear":{"answer":"no"}}',
+		TEST_MODEL_SCRIPT: "refund-double",
+	});
+	const lines: string[] = [];
+	const system = await startSystem(petraList({}, { ...fakeBindings, evals, log: (line) => lines.push(line) }));
+	assert.equal(await system.port(ports.channel).send({ id: "t/call-1", to: "cust-1", text: "Hi." }), "unknown");
+	const order = { id: "t/call-2", to: "cust-1", amount: 30, currency: "USD" };
+	assert.equal(await system.port(ports.payment).pay(order), "not_sent");
+	assert.deepEqual(
+		lines.map((line) => line.split(" ").slice(0, 4).join(" ")),
+		["channel-test: would send t/call-1", "payment-test: would send t/call-2"],
+	);
+	const question = {
+		id: "q",
+		point: "request-clear",
+		type: "yes_no" as const,
+		text: "Clear?",
+		options: ["yes", "no"],
+	};
+	const [answer] = await system.port(ports.decider).ask([question]);
+	assert.equal(answer?.answer, "no");
+	const refund = await system
+		.port(ports.model)
+		.complete({ messages: [{ role: "user", content: "Goal: refund 15 to cust-1" }], tools: [] });
+	assert.deepEqual(refund.toolCalls[0]?.input, { amount: 30, to: "cust-1", currency: "USD" });
+	await system.stop();
+	const identity = (await startSystem(platformList({}, { evalOwners: evals.evalOwners }))).port(ports.identity);
+	assert.equal((await identity.whoIs("eval-owner:eval-1"))?.kind, "owner");
 });

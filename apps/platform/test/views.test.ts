@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { GatewayCall } from "@tensquads/contracts";
+import type { Decider } from "@tensquads/core";
+import { costs } from "@tensquads/costs";
 import { adminTrailRead, costWriter, decisionWriter, operationsRows, platformWriter } from "@tensquads/petra";
 import pg from "pg";
 
@@ -12,15 +14,32 @@ import { AT, harness, harnessGateway, pricedModel, setPrices } from "./task-harn
 const CREDIT = 50_000;
 const TEST_TASK = { bot: "test-bot", taskType: "answer-question", goal: "Answer.", replyTo: "chat" } as const;
 
+// A decider that answers "yes" and reports one call of the provider of the test. That provider has no price for
+// the unit "call", so its cost row has no price, also when another test set a global price (for example the evals).
+function unpricedDecider(provider: string): Decider {
+	return {
+		name: "unpriced",
+		ask: async (questions) =>
+			questions.map((question) => ({
+				id: question.id,
+				answer: "yes",
+				probability: 0.99,
+				usage: [{ requestId: "unpriced-1", provider, model: "unpriced", units: 1, unit: "call" }],
+			})),
+	};
+}
+
 // One account with one task: a model call with a price, a step with no price, a failed check, a decider answer
-// with an outcome, and an approval that waits.
+// with an outcome, and an approval that waits. Each provider of a cost row is unique to the account, so no row of
+// unit_prices from another test can give a price to a row of this test.
 async function knownSetup() {
 	const h = await harness("s6");
 	const provider = `p-${h.accountId}`;
 	await setPrices(h, provider, { input: 1_000_000, output: 2_000_000 }, "2026-01-01T00:00:00.000Z");
-	const { work, decide } = h.build();
+	const { work, decide } = h.build({ decider: unpricedDecider(provider) });
 	const check = async () => ({ verdict: "continue" as const, reason: "Not yet." });
-	const gw = harnessGateway(h, work, undefined, check, pricedModel(provider));
+	const book = costs({ store: costWriter(h.database, h.accountId), now: h.now, sandboxProvider: provider });
+	const gw = harnessGateway({ ...h, costs: book }, work, undefined, check, pricedModel(provider));
 	const taskId = `c1-${h.accountId}`;
 	await work.startTask({ commandId: taskId, ...TEST_TASK });
 	const claims = h.claims(taskId, 1);
@@ -85,7 +104,7 @@ test("S6: the views for each account, task type, bot, model and decision point g
 		cost: 1020,
 		mean_cost: 1020,
 	});
-	const model = (await view("model")).find((row) => row.provider === provider);
+	const model = (await view("model")).find((row) => row.provider === provider && row.model === "m");
 	assert.deepEqual(numbers(model, ["calls", "input_tokens", "output_tokens", "cost"]), {
 		calls: 1,
 		input_tokens: 1000,
