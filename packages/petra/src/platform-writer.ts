@@ -37,6 +37,8 @@ export interface PlatformWriter {
 export interface PlatformReader {
 	receivedAdminCommands(): Promise<AdminCommandRow[]>;
 	accountExists(accountId: string): Promise<boolean>;
+	// Each account with its time zone, for the schedule of the night job (section 10.1).
+	accounts(): Promise<{ id: string; timeZone: string }[]>;
 }
 
 interface AdminRow {
@@ -100,6 +102,10 @@ export function platformWriter(database: Database): PlatformWriter & PlatformRea
 				);
 				return rows.map(toRow);
 			}),
+		accounts: () =>
+			run((tx) =>
+				tx.query<{ id: string; timeZone: string }>('SELECT id, time_zone AS "timeZone" FROM accounts ORDER BY id'),
+			),
 		accountExists: (accountId) =>
 			run(async (tx) => (await tx.query("SELECT 1 FROM accounts WHERE id = $1", [accountId])).length > 0),
 	};

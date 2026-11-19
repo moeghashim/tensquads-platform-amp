@@ -206,4 +206,12 @@ export default {
 			else message.retry();
 		}
 	},
+	// The cron trigger runs one time each hour. The Worker tells the Platform object (section 10.1).
+	async scheduled(controller, env): Promise<void> {
+		const response = await platformOf(env).fetch("https://platform/night", {
+			method: "POST",
+			body: JSON.stringify({ at: controller.scheduledTime }),
+		});
+		if (!response.ok) throw new Error(`The Platform object did not take the tick: ${response.status}`);
+	},
 } satisfies ExportedHandler<Env, JobMessage>;

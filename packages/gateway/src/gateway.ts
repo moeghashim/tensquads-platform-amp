@@ -99,6 +99,8 @@ export type ResultChecker = (input: {
 	bot: string;
 	brief: Brief;
 	result: TaskResult;
+	// The full forget list of the task. The check tests that the result does not use a forgotten fact (D11).
+	forget: readonly string[];
 }) => Promise<ResultAnswer>;
 
 export interface GatewayDeps {
@@ -276,9 +278,10 @@ export function gateway(deps: GatewayDeps): Gateway {
 	async function result(task: OpenTask, claims: PassClaims, call: Extract<GatewayCall, { call: "result" }>) {
 		const { taskId, attemptNo } = claims;
 		// Only an answer of the bot goes to the check (section 4.2). Petra reads each other stop by its name.
+		const forget = call.result.stop === "success" ? (await tasks.inbox(taskId)).forget : [];
 		const verdict: ResultAnswer =
 			call.result.stop === "success"
-				? await deps.check({ taskId, bot: task.bot, brief: task.brief, result: call.result })
+				? await deps.check({ taskId, bot: task.bot, brief: task.brief, result: call.result, forget })
 				: { verdict: "stands", reason: `A result with the stop ${call.result.stop} has no check.` };
 		const at = deps.now();
 		await tasks.addTrail({

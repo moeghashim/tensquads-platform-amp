@@ -13,11 +13,13 @@
 	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["PetraObject", "PlatformDurableObject"] }],
 	// The copies of the journal and the draft files (section 7.4). The keys start with accounts/{accountId}/.
 	"r2_buckets": [{ "binding": "FILES", "bucket_name": "tensquads-files" }],
-	// The queue "jobs": Petra puts the "check task" and "check action" jobs in it. The same Worker takes them.
+	// The queue "jobs": Petra puts the "check task" and "check action" jobs in it, and the Platform object the night jobs. The same Worker takes them.
 	"queues": {
 		"producers": [{ "binding": "JOBS", "queue": "jobs" }],
 		"consumers": [{ "queue": "jobs", "max_batch_size": 10, "max_batch_timeout": 1 }]
 	},
+	// The schedule of the night job (section 10.1): one tick each hour. The Platform object starts the job of each account.
+	"triggers": { "crons": ["0 * * * *"] },
 	// The settings of section 10. PASS_KEY, LAUNCHER_KEY and the database URLs are secrets (.dev.vars locally).
 	"vars": {
 		"WORKER_COMMIT": "local",

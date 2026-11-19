@@ -54,11 +54,8 @@ describe("the interface of the Platform Worker", () => {
 				400,
 				"invalid_request",
 			],
-			[
-				post("/v1/commands", TEST_TOKENS.ownerA, { type: "ForgetFact", commandId: "w4-d", at: AT, factId: "f" }),
-				400,
-				"not_available",
-			],
+			// Each owner command has a handler since task 08. An admin command of a later task is not available.
+			[post("/v1/admin/commands", TEST_TOKENS.superAdmin, { type: "SetUnitPrice" }), 400, "not_available"],
 			[post("/v1/commands", TEST_TOKENS.ownerB, ownerMessage("w4-e", "x")), 403, "forbidden"],
 			[post("/v1/admin/commands", TEST_TOKENS.ownerA, { type: "CreateAccount" }), 404, "not_found"],
 			[call("/v1/nothing", TEST_TOKENS.ownerA), 404, "not_found"],

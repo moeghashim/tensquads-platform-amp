@@ -1,5 +1,6 @@
 import type { Message } from "@earendil-works/pi-ai";
 import type { Brief } from "@tensquads/contracts";
+import type { ModelMessage } from "@tensquads/core";
 
 // The brief is the first input of a task (requirement L1). Each fact is on its own line with the id of its row.
 export function renderBrief(brief: Brief): string {
@@ -38,6 +39,12 @@ export function removeTexts(messages: readonly Message[], texts: readonly string
 		return [...messages];
 	}
 	return messages.map((message) => cleanMessage(message, nonEmpty));
+}
+
+// Removes each exact copy of a forgotten text from the model messages of Petra (ARCHITECTURE section 4.6).
+export function removeModelTexts(messages: readonly ModelMessage[], texts: readonly string[]): ModelMessage[] {
+	const nonEmpty = texts.filter((text) => text !== "");
+	return messages.map((message) => ({ ...message, content: clean(message.content, nonEmpty) }));
 }
 
 function cleanMessage(message: Message, texts: readonly string[]): Message {

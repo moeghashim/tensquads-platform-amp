@@ -21,6 +21,7 @@ export interface GateSetup {
 	gate: Gate;
 	gw: Gateway;
 	work: ReturnType<Harness["build"]>["work"];
+	core: ReturnType<Harness["build"]>["core"];
 	// A new gate, as after a stop of Petra: the marks in memory are gone. The services keep their sends.
 	restart(store?: GateStore): Gate;
 	action(input: {
@@ -39,6 +40,8 @@ export interface GateSetup {
 export interface GateOptions {
 	answer?: SendOutcome;
 	hold?: boolean;
+	// The task comes from an external event of this customer (section 7.8).
+	customer?: { sender: string; name: string; at: string };
 }
 
 // The status of an answer of the gate, or "busy".
@@ -52,9 +55,20 @@ export const refund = (amount: number) => ({ amount, to: "cust-1", currency: "US
 
 export async function gateSetup(prefix: string, goal: string, options: GateOptions = {}): Promise<GateSetup> {
 	const h = await harness(prefix);
-	const { work, out } = h.build({ checkAction: (commandId, actionId) => current.checkJob(commandId, actionId) });
+	const { work, out, core } = h.build({
+		checkAction: (commandId, actionId) => current.checkJob(commandId, actionId),
+	});
 	const taskId = `${h.accountId}-task`;
-	await work.startTask({ commandId: taskId, bot: "test-bot", taskType: "answer-question", goal, replyTo: "chat" });
+	const eventId = `event-${h.accountId}`;
+	if (options.customer) await customerEvent(core, eventId, options.customer);
+	await work.startTask({
+		commandId: taskId,
+		bot: "test-bot",
+		taskType: "answer-question",
+		goal,
+		replyTo: "chat",
+		...(options.customer ? { fromEvent: eventId } : {}),
+	});
 	await startRunner(h, taskId, 1);
 	const paid: PaymentOrder[] = [];
 	const sent: ChannelMessage[] = [];
@@ -90,6 +104,7 @@ export async function gateSetup(prefix: string, goal: string, options: GateOptio
 		},
 		gw,
 		work,
+		core,
 		restart(store) {
 			current = make(store);
 			return current;
@@ -104,6 +119,28 @@ export async function gateSetup(prefix: string, goal: string, options: GateOptio
 			return attempt.attemptNo;
 		},
 	};
+}
+
+// An external event of a customer arrives. Petra writes the event and the message, with the customer reference.
+async function customerEvent(
+	core: GateSetup["core"],
+	eventId: string,
+	customer: NonNullable<GateOptions["customer"]>,
+): Promise<void> {
+	await core.accept(
+		{
+			type: "ExternalEvent",
+			commandId: eventId,
+			at: customer.at,
+			eventId,
+			source: "whatsapp",
+			eventType: "message",
+			sender: customer.sender,
+			payload: { text: `I am ${customer.name}.`, name: customer.name },
+		},
+		"not trusted",
+	);
+	await core.work();
 }
 
 export const startCall = (callNo: number, runnerId: string): GatewayCall => ({

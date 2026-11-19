@@ -752,3 +752,17 @@ Append-only learning log for commits and deploys. Add new entries only at the en
   - package.json
   - package-lock.json
   - docs/evidence/07-credits-and-trail
+## 2026-11-19T08:48:39.203Z
+- Trigger: commit
+- Learning: A brief copies facts, so the cleaning of a customer must also clean each brief that names a fact of that customer. The night job runs on the local date D and reads day D-1. Petra keeps the texts of deleted forgotten facts until her conversation resets, because pi-durable cannot delete old entries.
+- Context: feat(memory): add the memory, the night job and the deletions
+- Branch: 08-memory
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - apps
+  - packages
+  - db
+  - scripts
+  - package.json
+  - package-lock.json
+  - docs/evidence/08-memory

@@ -25,6 +25,8 @@ export interface NewMessage {
 	at: string;
 	// The task of the message, if it has one.
 	taskId?: string;
+	// The customer of a message from an external event (section 7.8). A message of a task gets the reference of the task.
+	customerRef?: string;
 }
 
 // A message of the owner to Petra, as the account reader gives it.
@@ -42,6 +44,8 @@ export interface AccountWriter {
 		payload: unknown;
 		origin: EventOrigin;
 		at: string;
+		// Our code makes it for an external event with a sender (section 7.8).
+		customerRef?: string;
 	}): Promise<"received" | "done">;
 	finishEvent(commandId: string): Promise<void>;
 	// Returns the seq of the row. A write that comes again keeps the first seq.
@@ -50,6 +54,8 @@ export interface AccountWriter {
 }
 
 export interface AccountReader {
+	// The account of the writer. It comes from the name of the Durable Object (section 7.1).
+	readonly accountId: string;
 	receivedEvents(): Promise<EventRow[]>;
 	maxSeq(): Promise<number>;
 	// The seq of the message with this source reference, or undefined.
@@ -66,12 +72,21 @@ export interface AccountReader {
 export function accountWriter(database: Database, accountId: string): AccountWriter & AccountReader {
 	const run = <T>(work: (tx: Transaction) => Promise<T>) => database.transaction({ role: "petra", accountId }, work);
 	return {
+		accountId,
 		receiveEvent: (event) =>
 			run(async (tx) => {
 				await tx.query(
-					`INSERT INTO events (account_id, command_id, kind, payload, origin, status, received_at)
-					 VALUES ($1, $2, $3, $4, $5, 'received', $6) ON CONFLICT DO NOTHING`,
-					[accountId, event.commandId, event.kind, JSON.stringify(event.payload), event.origin, event.at],
+					`INSERT INTO events (account_id, command_id, kind, payload, origin, customer_ref, status, received_at)
+					 VALUES ($1, $2, $3, $4, $5, $6, 'received', $7) ON CONFLICT DO NOTHING`,
+					[
+						accountId,
+						event.commandId,
+						event.kind,
+						JSON.stringify(event.payload),
+						event.origin,
+						event.customerRef ?? null,
+						event.at,
+					],
 				);
 				const rows = await tx.query<{ status: "received" | "done" }>(
 					"SELECT status FROM events WHERE account_id = $1 AND command_id = $2",
@@ -89,8 +104,11 @@ export function accountWriter(database: Database, accountId: string): AccountWri
 		addMessage: (message) =>
 			run(async (tx) => {
 				await tx.query(
-					`INSERT INTO messages (account_id, source_ref, seq, direction, channel, sender, type, body, at, task_id)
-					 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (account_id, source_ref) DO NOTHING`,
+					`INSERT INTO messages (account_id, source_ref, seq, direction, channel, sender, type, body, at, task_id,
+					 customer_ref)
+					 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::text,
+					 coalesce($11::text, (SELECT customer_ref FROM tasks WHERE id = $10::text)))
+					 ON CONFLICT (account_id, source_ref) DO NOTHING`,
 					[
 						accountId,
 						message.sourceRef,
@@ -102,6 +120,7 @@ export function accountWriter(database: Database, accountId: string): AccountWri
 						JSON.stringify(message.body),
 						message.at,
 						message.taskId ?? null,
+						message.customerRef ?? null,
 					],
 				);
 				const rows = await tx.query<{ seq: string }>(

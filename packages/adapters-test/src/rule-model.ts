@@ -82,12 +82,28 @@ function wrongNow(goal: string, request: ModelRequest): boolean {
 	return !request.messages.some((message) => message.role === "assistant" && message.content.startsWith(WRONG));
 }
 
+// "remember on <page>: <text>" keeps a fact of the owner, and "promote fact <id>" puts a fact into the core (task 08).
 // "stop" stops a task. A status question tells the status. Each other message goes to "start a task".
 // The tool "start a task" puts a message for a task that runs in the inbox of that task.
 function toolOf(text: string): string {
+	if (/^remember on /i.test(text)) return "remember_fact";
+	if (/^promote fact /i.test(text)) return "promote_fact";
 	if (/\bstop\b/i.test(text)) return "stop_task";
 	if (/\bstatus\b/i.test(text)) return "task_status";
 	return "start_task";
+}
+
+// The night job (task 08) sends "Night job: ..." and then one line "[id] text" for each message of the owner.
+// The rule model proposes one core item for each message that starts with "Always" or "Never", with the id as evidence.
+const NIGHT = /^Night job:/;
+const NIGHT_LINE = /^\[(\S+)\] ((?:always|never)\b.*)$/i;
+
+function nightAnswer(request: ModelRequest, content: string): ModelAnswer {
+	const proposals = content.split("\n").flatMap((line) => {
+		const match = NIGHT_LINE.exec(line);
+		return match ? [{ text: match[2], evidence: [match[1]] }] : [];
+	});
+	return answer(request, JSON.stringify(proposals));
 }
 
 function answer(request: ModelRequest, text: string, toolCalls: ModelAnswer["toolCalls"] = []): ModelAnswer {
@@ -115,7 +131,9 @@ export function ruleModel(): Plugin {
 			const seen: Seen = new Map();
 			ctx.provide(ports.model, {
 				complete: async (request) => {
-					const goal = GOAL.exec(request.messages.find((message) => message.role === "user")?.content ?? "");
+					const first = request.messages.find((message) => message.role === "user")?.content ?? "";
+					if (NIGHT.test(first)) return nightAnswer(request, first);
+					const goal = GOAL.exec(first);
 					return goal?.[1] === undefined ? petraAnswer(request) : botAnswer(request, goal[1], seen);
 				},
 			});

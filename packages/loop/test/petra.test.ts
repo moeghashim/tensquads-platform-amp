@@ -114,3 +114,121 @@ test("Petra: an owner message runs a tool one time, and a second submit of the s
 	// The alarm handler can call onWake when nothing is due.
 	loop.onWake();
 });
+
+test("M9: Petra removes the text of a forgotten fact from her next model request", { timeout: 30_000 }, async (t) => {
+	const { storage, close } = fakeStorage();
+	const fact = "The code of the safe is 4471.";
+	const forgotten: string[] = [];
+	const requests: string[][] = [];
+	let answered: () => void = () => {};
+	const loop = await openPetraLoop({
+		storage,
+		tools: [],
+		// A recording model: it keeps the text of each request.
+		complete: async ({ messages }): Promise<ModelAnswer> => {
+			requests.push(messages.map((message) => message.content));
+			answered();
+			return text("Noted.");
+		},
+		forgotten: async () => forgotten,
+	});
+	t.after(async () => {
+		await loop.close();
+		close();
+	});
+	const turn = async (requestId: string, input: string) => {
+		const done = new Promise<void>((resolve) => {
+			answered = resolve;
+		});
+		await loop.submit(requestId, input);
+		await done;
+	};
+	await turn("command-1", `remember on customers: ${fact}`);
+	assert.ok(
+		requests[0]?.some((content) => content.includes(fact)),
+		"Control: the first request has the text.",
+	);
+	// The owner forgets the fact. The conversation still has the text, but the model request does not.
+	forgotten.push(fact);
+	await turn("command-2", "What do you know?");
+	const next = requests[1] ?? [];
+	assert.ok(next.length > 0);
+	assert.ok(
+		next.every((content) => !content.includes(fact)),
+		"The next request has no text of the fact.",
+	);
+	assert.ok(next.some((content) => content.includes("remember on customers: [removed]")));
+});
+
+test("M8: a new conversation of Petra starts from the history only; the old one stays; idle tells a run in progress", {
+	timeout: 30_000,
+}, async (t) => {
+	const { storage, close } = fakeStorage();
+	const requests: string[][] = [];
+	let answered: () => void = () => {};
+	let hold: Promise<void> = Promise.resolve();
+	const loop = await openPetraLoop({
+		storage,
+		tools: [],
+		complete: async ({ messages }): Promise<ModelAnswer> => {
+			requests.push(messages.map((message) => message.content));
+			await hold;
+			answered();
+			return text("Noted.");
+		},
+	});
+	t.after(close);
+	const turn = async (submit: () => Promise<void>) => {
+		const done = new Promise<void>((resolve) => {
+			answered = resolve;
+		});
+		await submit();
+		await done;
+		for (let i = 0; i < 50 && !(await loop.idle()); i++) await new Promise((resolve) => setTimeout(resolve, 20));
+	};
+	await turn(() => loop.submit("command-1", "The old secret is 1234."));
+	assert.equal(await loop.idle(), true, "No run and no input in the queue: Petra is idle.");
+	const oldId = loop.conversationId();
+	const newId = await (async () => {
+		let id = 0;
+		await turn(async () => {
+			id = await loop.renew("renew-1", "The earlier messages of the owner:\n- Hello.");
+		});
+		return id;
+	})();
+	assert.notEqual(newId, oldId);
+	assert.equal(loop.conversationId(), newId);
+	await turn(() => loop.submit("command-2", "What do you know?"));
+	const last = requests.at(-1) ?? [];
+	assert.ok(
+		last.some((content) => content.includes("Hello.")),
+		"The new conversation has the history.",
+	);
+	assert.ok(
+		last.every((content) => !content.includes("1234")),
+		"The new conversation has no text of the old one.",
+	);
+	// A run in progress: Petra is not idle.
+	let release: () => void = () => {};
+	hold = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const done = new Promise<void>((resolve) => {
+		answered = resolve;
+	});
+	await loop.submit("command-3", "One more.");
+	for (let i = 0; i < 50 && requests.length < 4; i++) await new Promise((resolve) => setTimeout(resolve, 20));
+	assert.equal(await loop.idle(), false);
+	release();
+	await done;
+	// A loop that opens again with the id uses the new conversation.
+	await loop.close();
+	const again = await openPetraLoop({
+		storage,
+		tools: [],
+		complete: async () => text("Again."),
+		conversationId: newId,
+	});
+	assert.equal(again.conversationId(), newId);
+	await again.close();
+});

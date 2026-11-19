@@ -9,12 +9,19 @@ import { credits } from "@tensquads/credits";
 import { gate } from "@tensquads/gate";
 import { type Gateway, gateway, signPass } from "@tensquads/gateway";
 import { openPetraLoop, type PetraLoop } from "@tensquads/loop";
+import { cleanedFact, memory as makeMemory } from "@tensquads/memory";
 import {
 	accountWriter,
 	actionWriter,
+	CONVERSATION_KEY,
+	type ConversationState,
+	memoryWriter,
+	nightJob,
+	nightWriter,
 	outbox,
 	type Petra,
 	petra,
+	petraForgotten,
 	petraTools,
 	taskWork,
 	taskWriter,
@@ -92,6 +99,9 @@ export class PetraObject extends DurableObject<Env> {
 			const out = outbox({ writer, storage, now, send, addTrail: tasks.addTrail });
 			const actions = actionWriter(database, accountId);
 			const queue = system.port(ports.queue);
+			const model = system.port(ports.model);
+			// The memory holds the rules. Petra writes its rows (requirement P2).
+			const memory = makeMemory({ store: memoryWriter(database, accountId), tasks, tell: out.tell, model });
 			// The gate calls the payment and the channel. A runner has no path to them (requirement G1).
 			const actionGate = gate({
 				accountId,
@@ -120,18 +130,43 @@ export class PetraObject extends DurableObject<Env> {
 				now,
 				actions,
 				checkAction: (commandId, actionId) => actionGate.checkJob(commandId, actionId),
+				memory,
 			});
-			const model = system.port(ports.model);
-			const tools = petraTools({ writer, tasks, work, outbox: out, now });
+			const tools = petraTools({ writer, tasks, work, outbox: out, now, memory });
 			const loop = await openPetraLoop({
 				storage,
 				tools,
 				complete: ({ messages }) => model.complete({ messages, tools: tools.map((tool) => tool.name) }),
 				wakeChanged: (at) => void this.arm(at),
+				// Petra removes the text of each forgotten fact from her own model requests (requirement M9). She keeps
+				// the text of a deleted fact until her next new conversation (requirement M8).
+				forgotten: () => petraForgotten(storage, () => memory.forgottenTexts()),
+				// After a new conversation, Petra uses it (section 4.6).
+				...(await this.conversationId()),
 			});
-			// The night job deletes the old trails (requirement T8). Task 08 gives it its schedule.
-			const nightJob = async () => void (await book.night());
-			const core = petra({ writer, storage, model, now, send, outbox: out, conversation: loop, work, nightJob });
+			// The night job (section 10.1): the proposals, the deletions and the old trails (requirements M10, M13, T8).
+			const night = nightJob({
+				writer: nightWriter(database, accountId),
+				memory,
+				cancel: work.cancel,
+				objectStore,
+				storage,
+				clean: cleanedFact,
+				trail: book.night,
+				now,
+			});
+			const core = petra({
+				writer,
+				storage,
+				model,
+				now,
+				send,
+				outbox: out,
+				conversation: loop,
+				work,
+				nightJob: night.run,
+				memory,
+			});
 			const gw = gateway({
 				accountId,
 				tasks,
@@ -150,6 +185,12 @@ export class PetraObject extends DurableObject<Env> {
 			return { core, writer, tasks, loop, gw };
 		})();
 		return this.started;
+	}
+
+	// The id of the conversation of Petra after a renew, or nothing for the root conversation.
+	private async conversationId(): Promise<{ conversationId?: number }> {
+		const state = await this.ctx.storage.get<ConversationState>(CONVERSATION_KEY);
+		return state?.id === undefined ? {} : { conversationId: state.id };
 	}
 
 	// One alarm for pi-durable and the work list: the earlier of the two next times (section 4.6).

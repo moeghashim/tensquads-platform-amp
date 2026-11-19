@@ -36,7 +36,13 @@ function recordingModel(pass: boolean): CheckerModel & { requests: CheckRequest[
 	};
 }
 
-const input = (b: Brief, r: TaskResult) => ({ taskId: "task-1", bot: testBot.id, brief: b, result: r });
+const input = (b: Brief, r: TaskResult, forget: string[] = []) => ({
+	taskId: "task-1",
+	bot: testBot.id,
+	brief: b,
+	result: r,
+	forget,
+});
 
 test("K1: the tests by code run first; a result that fails them does not reach the checker model", async () => {
 	const model = recordingModel(true);
@@ -83,4 +89,18 @@ test("K1: a bot with no tests by code gets no verdict that stands", async () => 
 	);
 	assert.equal(model.requests.length, 0);
 	assert.ok(CODE_TESTS[testBot.id]);
+});
+
+test("M9: a result that has the text of a fact on the forget list of the task does not reach the checker model", async () => {
+	const model = recordingModel(true);
+	const check = checker(model);
+	const used = await check(input(brief("Give the hours.", ["fact-1"]), result("The text of fact-1."), ["fact-1"]));
+	assert.deepEqual(used, {
+		verdict: "continue",
+		reason: 'Tests by code: The result uses the forgotten fact "fact-1".',
+	});
+	assert.equal(model.requests.length, 0);
+	// The same text with no forget passes the tests by code.
+	const kept = await check(input(brief("Give the hours.", ["fact-1"]), result("The text of fact-1.")));
+	assert.equal(kept.verdict, "stands");
 });

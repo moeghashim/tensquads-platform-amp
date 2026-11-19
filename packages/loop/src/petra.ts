@@ -1,6 +1,7 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import {
 	type Conversation,
+	type ConversationId,
 	createRegistry,
 	defineExtension,
 	defineTool,
@@ -15,6 +16,7 @@ import {
 import { obj } from "@earendil-works/pi-schema";
 
 import { type Complete, GATEWAY_MODEL, gatewayModels } from "./gateway-model.js";
+import { removeModelTexts } from "./messages.js";
 
 // The loop of Petra in her Durable Object (ARCHITECTURE section 4.6).
 // pi-durable keeps her conversation in the SQL storage of the Durable Object.
@@ -38,6 +40,10 @@ export interface PetraLoopOptions {
 	// pi-durable calls this when its next wake time changes. The Durable Object then sets its alarm again.
 	wakeChanged?: (at: number | undefined) => void;
 	now?: () => number;
+	// The texts of the forgotten facts. Petra removes them before each of her model requests (requirement M9).
+	forgotten?: () => Promise<readonly string[]>;
+	// The id of the conversation of Petra after a renew. Without it, the loop uses the root conversation.
+	conversationId?: number;
 }
 
 export interface PetraLoop {
@@ -47,6 +53,14 @@ export interface PetraLoop {
 	onWake(): void;
 	// The next time pi-durable needs the Durable Object: now when work can run, or undefined when it needs nothing.
 	nextWake(): number | undefined;
+	// True when Petra has no task of pi-durable that runs or waits, and no submission that is not settled.
+	idle(): Promise<boolean>;
+	// Starts a new conversation and uses it from now on (ARCHITECTURE section 4.6, report of task 01, SP-A8).
+	// pi-durable 1.5.2 has no call that deletes a conversation, so the old pi_ rows stay.
+	// The history is the first input of the new conversation. Returns the id of the new conversation.
+	renew(requestId: string, history: string | undefined): Promise<number>;
+	// The id of the conversation in use.
+	conversationId(): number;
 	close(): Promise<void>;
 }
 
@@ -73,7 +87,10 @@ export async function openPetraLoop(options: PetraLoopOptions): Promise<PetraLoo
 	const harness = await Harness.open(
 		await openDurableObjectSqliteStorage(options.storage),
 		{
-			models: gatewayModels(options.complete),
+			models: gatewayModels(async (request) => {
+				const texts = (await options.forgotten?.()) ?? [];
+				return options.complete({ ...request, messages: removeModelTexts(request.messages, texts) });
+			}),
 			registry,
 			now,
 			// With onWake, pi-durable arms no timer. The alarm of the Durable Object wakes it.
@@ -81,11 +98,27 @@ export async function openPetraLoop(options: PetraLoopOptions): Promise<PetraLoo
 		},
 		context,
 	);
-	const root: Conversation = await harness.root(context, { agent: { model: GATEWAY_MODEL } });
+	const agent = { model: GATEWAY_MODEL };
+	const saved =
+		options.conversationId === undefined
+			? undefined
+			: await harness.conversation(options.conversationId as ConversationId, context);
+	let current: Conversation = saved ?? (await harness.root(context, { agent }));
+	const submit = async (requestId: string, text: string) => {
+		await current.submit({ type: "input", content: text, requestId, whenBusy: "followUp" }, context);
+	};
 	return {
-		async submit(requestId, text) {
-			await root.submit({ type: "input", content: text, requestId, whenBusy: "followUp" }, context);
+		submit,
+		async idle() {
+			const inspection = await harness.inspect(context);
+			return inspection.tasks.length === 0 && inspection.submissions.length === 0;
 		},
+		async renew(requestId, history) {
+			current = await harness.createConversation({ ownership: { kind: "ownerless" }, agent }, context);
+			if (history !== undefined) await submit(requestId, history);
+			return current.id;
+		},
+		conversationId: () => current.id,
 		onWake: () => harness.resume(),
 		nextWake: () => nextTime(harness.wake(), now),
 		close: () => harness.close(context),
