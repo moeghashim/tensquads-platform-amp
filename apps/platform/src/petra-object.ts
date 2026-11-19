@@ -6,6 +6,7 @@ import { checker } from "@tensquads/checker";
 import { command as commandSchema, type GatewayCall, type OwnerMessage, type PassClaims } from "@tensquads/contracts";
 import { ports, startSystem } from "@tensquads/core";
 import { credits } from "@tensquads/credits";
+import { decisions } from "@tensquads/decisions";
 import { gate } from "@tensquads/gate";
 import { type Gateway, gateway, signPass } from "@tensquads/gateway";
 import { openPetraLoop, type PetraLoop } from "@tensquads/loop";
@@ -15,6 +16,7 @@ import {
 	actionWriter,
 	CONVERSATION_KEY,
 	type ConversationState,
+	decisionWriter,
 	memoryWriter,
 	nightJob,
 	nightWriter,
@@ -28,6 +30,7 @@ import {
 } from "@tensquads/petra";
 import { trail } from "@tensquads/trail";
 
+import { refundReasons } from "./decide.js";
 import { type Env, errorResponse, petraConnections, readSettings } from "./env.js";
 import { PLATFORM_NAME } from "./platform-object.js";
 import { petraPlugins } from "./plugins/petra.js";
@@ -84,6 +87,7 @@ export class PetraObject extends DurableObject<Env> {
 				jobs: this.env.JOBS,
 				platform: this.platform(),
 				paymentHoldMs: settings.paymentHoldMs,
+				shadowDecider: settings.shadowDecider,
 			};
 			const system = await startSystem(petraPlugins(petraConnections(this.env), bindings));
 			const database = system.port(ports.database);
@@ -102,6 +106,15 @@ export class PetraObject extends DurableObject<Env> {
 			const model = system.port(ports.model);
 			// The memory holds the rules. Petra writes its rows (requirement P2).
 			const memory = makeMemory({ store: memoryWriter(database, accountId), tasks, tell: out.tell, model });
+			// The decision points of Petra and the gate (task 09). The shadow decider never acts (requirement Q5).
+			const decisionRows = decisionWriter(database, accountId);
+			const decide = decisions({
+				store: decisionRows,
+				decider: system.port(ports.decider),
+				shadow: system.port(ports.shadowDecider),
+				timeoutMs: settings.deciderTimeoutMs,
+				now,
+			});
 			// The gate calls the payment and the channel. A runner has no path to them (requirement G1).
 			const actionGate = gate({
 				accountId,
@@ -113,6 +126,7 @@ export class PetraObject extends DurableObject<Env> {
 				queue,
 				toolLimitMs: settings.toolLimitMs,
 				now,
+				reasons: refundReasons(decide, decisionRows),
 			});
 			const work = taskWork({
 				accountId,
@@ -131,8 +145,9 @@ export class PetraObject extends DurableObject<Env> {
 				actions,
 				checkAction: (commandId, actionId) => actionGate.checkJob(commandId, actionId),
 				memory,
+				outcomes: decisionRows,
 			});
-			const tools = petraTools({ writer, tasks, work, outbox: out, now, memory });
+			const tools = petraTools({ writer, decisions: decide, tasks, work, outbox: out, now, memory });
 			const loop = await openPetraLoop({
 				storage,
 				tools,

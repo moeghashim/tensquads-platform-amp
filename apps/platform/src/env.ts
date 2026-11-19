@@ -4,6 +4,7 @@ import type { JobMessage } from "@tensquads/petra";
 
 import type { PetraObject } from "./petra-object.js";
 import type { PlatformDurableObject } from "./platform-object.js";
+import type { ShadowDecider } from "./plugins/petra.js";
 
 export interface Env {
 	PETRA: DurableObjectNamespace<PetraObject>;
@@ -28,6 +29,10 @@ export interface Env {
 	TOOL_LIMIT_MS?: string;
 	// For the tests of the full path: each send of the payment test adapter waits this long. The default is 0.
 	PAYMENT_HOLD_MS?: string;
+	// The time limit of one decider call (task 09). After it, the answer is "not sure".
+	DECIDER_TIMEOUT_MS?: string;
+	// The second decider of the shadow mode: "none" or "fixed". The default is "none".
+	SHADOW_DECIDER?: string;
 }
 
 export interface Settings {
@@ -39,6 +44,8 @@ export interface Settings {
 	takeWaitMs: number;
 	toolLimitMs: number;
 	paymentHoldMs: number;
+	deciderTimeoutMs: number;
+	shadowDecider: ShadowDecider;
 }
 
 // A setting that is missing or not valid. The message names the setting, never its value (section 10).
@@ -53,7 +60,8 @@ type SettingName =
 	| "ATTEMPT_MAX_MS"
 	| "SILENT_MS"
 	| "LAUNCHER_TAKE_WAIT_MS"
-	| "TOOL_LIMIT_MS";
+	| "TOOL_LIMIT_MS"
+	| "DECIDER_TIMEOUT_MS";
 
 function text(env: Env, name: SettingName): string {
 	const value = env[name];
@@ -80,6 +88,8 @@ export function readSettings(env: Env): Settings {
 		takeWaitMs: milliseconds(env, "LAUNCHER_TAKE_WAIT_MS"),
 		toolLimitMs: milliseconds(env, "TOOL_LIMIT_MS"),
 		paymentHoldMs: holdMilliseconds(env.PAYMENT_HOLD_MS),
+		deciderTimeoutMs: milliseconds(env, "DECIDER_TIMEOUT_MS"),
+		shadowDecider: shadowDeciderOf(env.SHADOW_DECIDER),
 	};
 }
 
@@ -90,6 +100,14 @@ function holdMilliseconds(value: string | undefined): number {
 		throw new SettingError("The setting PAYMENT_HOLD_MS is not a whole number of milliseconds.");
 	}
 	return ms;
+}
+
+const SHADOW_DECIDERS: Record<string, ShadowDecider> = { "": "none", none: "none", fixed: "fixed" };
+
+function shadowDeciderOf(value = ""): ShadowDecider {
+	const found = Object.hasOwn(SHADOW_DECIDERS, value) ? SHADOW_DECIDERS[value] : undefined;
+	if (!found) throw new SettingError('The setting SHADOW_DECIDER is not "none" or "fixed".');
+	return found;
 }
 
 // Petra gets only her own connection. The Platform object gets its two connections.

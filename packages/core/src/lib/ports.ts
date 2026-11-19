@@ -97,9 +97,14 @@ export interface Sandbox {
 }
 
 // Decider. One call has several typed questions. Each answer has a probability (D18, D25).
+// The types fit Jev: "yes_no" and "choice" answer with one of the options. A "score" question has no options.
+// Its answer is a number from 0 to 1, written as text.
+export type DeciderQuestionType = "yes_no" | "choice" | "score";
+
 export interface DeciderQuestion {
 	id: string;
 	point: string;
+	type: DeciderQuestionType;
 	text: string;
 	options: readonly string[];
 }
@@ -110,7 +115,29 @@ export interface DeciderAnswer {
 	probability: number;
 }
 
+// One decision record: one answer of one decider, as one row of the table decisions (requirement Q3).
+// It has the seq of the message, never its text.
+export interface DecisionRecord {
+	// The key of the record, from its cause (section 7.1).
+	sourceRef: string;
+	decider: string;
+	taskId: string | null;
+	point: string;
+	messageSeq: number | null;
+	options: readonly string[];
+	// Null after an error or a timeout.
+	answer: string | null;
+	probability: number | null;
+	shadow: boolean;
+	// True when the answer passed the checks of the code: valid, and at or above the level.
+	used: boolean;
+	ms: number | null;
+	at: string;
+}
+
 export interface Decider {
+	// The name of the decider in each decision record.
+	readonly name: string;
 	ask(questions: readonly DeciderQuestion[]): Promise<DeciderAnswer[]>;
 }
 
@@ -159,6 +186,8 @@ export const ports = {
 	checkerModel: portKey<CheckerModel>("checker model"),
 	sandbox: portKey<Sandbox>("sandbox"),
 	decider: portKey<Decider>("decider"),
+	// The second decider of the shadow mode, or null when there is none (requirement Q5).
+	shadowDecider: portKey<Decider | null>("shadow decider"),
 	identity: portKey<Identity>("identity"),
 	channel: portKey<Channel>("channel"),
 	payment: portKey<Payment>("payment"),

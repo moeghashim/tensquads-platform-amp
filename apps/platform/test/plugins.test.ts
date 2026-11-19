@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { ruleChecker, scriptedModel } from "@tensquads/adapters-test";
+import { modelDecider, ruleChecker, scriptedModel } from "@tensquads/adapters-test";
 import { testBot } from "@tensquads/bots";
 import { checker } from "@tensquads/checker";
 import { type Plugin, type PortKey, ports, startSystem } from "@tensquads/core";
@@ -51,13 +51,15 @@ test("C1: Petra starts from her plug-in list, with one plug-in for each row", as
 		ports.checkerModel,
 		ports.sandbox,
 		ports.decider,
+		ports.shadowDecider,
 		ports.identity,
 		ports.channel,
 		ports.payment,
 	];
 	provided.push(ports.database);
 	for (const key of provided) {
-		assert.ok(system.port(key), `the port "${key.name}" is provided`);
+		// The port of the shadow decider is null when no shadow runs. It is still provided.
+		assert.doesNotThrow(() => system.port(key), `the port "${key.name}" is provided`);
 	}
 	await system.stop();
 });
@@ -163,4 +165,26 @@ test("K2: a second adapter replaces the row of the checker model, and the row of
 	assert.deepEqual(await system.port(ports.model).complete(request), await before.port(ports.model).complete(request));
 	await system.stop();
 	await before.stop();
+});
+
+test("Q8: the model decider replaces the row of the fixed decider, and no other row or package changes", async () => {
+	const second = modelDecider();
+	const list = petraPlugins.map((row) => (row.name === "decider-fixed" ? second : row));
+	assert.equal(list.filter((row, index) => row !== petraPlugins[index]).length, 1);
+	const question = {
+		id: "q-1",
+		point: "request-clear",
+		type: "yes_no" as const,
+		text: "Is it clear?",
+		options: ["yes", "no"],
+	};
+	const before = await startSystem(petraPlugins);
+	const after = await startSystem(list);
+	assert.equal(before.port(ports.decider).name, "fixed");
+	assert.equal(after.port(ports.decider).name, "model");
+	// The rule model of the list answers the questions of the model decider (task 09).
+	assert.deepEqual(await after.port(ports.decider).ask([question]), [{ id: "q-1", answer: "yes", probability: 0.95 }]);
+	assert.equal(after.port(ports.shadowDecider), null, "The row of the shadow mode does not change.");
+	await before.stop();
+	await after.stop();
 });

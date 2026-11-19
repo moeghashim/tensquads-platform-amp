@@ -1,10 +1,11 @@
 // The parts of Petra for the Node tests of task 04, against a real Postgres.
 // The sandbox list, the queue, the object store and the storage of the Durable Object are fakes in memory.
 // The credits and the trail are the real packages, joined as the Durable Object joins them.
-import { ruleModel } from "@tensquads/adapters-test";
+import { fixedDecider, ruleModel } from "@tensquads/adapters-test";
 import type { OwnerMessage, PassClaims } from "@tensquads/contracts";
-import { type Database, ports, type SandboxRequest, startSystem } from "@tensquads/core";
+import { type Database, type Decider, ports, type SandboxRequest, startSystem } from "@tensquads/core";
 import { credits } from "@tensquads/credits";
+import { type Decisions, decisions } from "@tensquads/decisions";
 import { type Gateway, type GatewayGate, gateway, type ResultChecker, signPass } from "@tensquads/gateway";
 import { cleanedFact, type Memory, memory as makeMemory } from "@tensquads/memory";
 import {
@@ -12,6 +13,7 @@ import {
 	accountWriter,
 	actionWriter,
 	type Conversation,
+	decisionWriter,
 	type JobMessage,
 	memoryWriter,
 	type NightJob,
@@ -74,6 +76,12 @@ export interface BuildOptions {
 	checkAction?: (commandId: string, actionId: string) => Promise<void>;
 	// The conversation of Petra. The default has none.
 	conversation?: Conversation;
+	// The decider of Petra and the gate. The default is the fixed decider of the plug-in list of Petra.
+	decider?: Decider;
+	// The second decider of the shadow mode. The default has none.
+	shadow?: Decider | null;
+	// The time limit of a decider call. The default is 5000 ms, as DECIDER_TIMEOUT_MS.
+	timeoutMs?: number;
 }
 
 export interface Harness {
@@ -101,6 +109,8 @@ export interface Harness {
 		// Petra with the rule model and the night job, as the Durable Object joins them (section 10.1).
 		core: Petra;
 		night: NightJob;
+		// The decision points of the account (task 09).
+		decide: Decisions;
 	};
 	claims(taskId: string, attemptNo: number): PassClaims;
 }
@@ -108,7 +118,9 @@ export interface Harness {
 export async function harness(prefix: string, initialCredits = HARNESS_CREDITS, timeZone = "UTC"): Promise<Harness> {
 	const database = testDatabase();
 	const accountId = uniqueId(prefix);
-	const model = (await startSystem([ruleModel()])).port(ports.model);
+	const system = await startSystem([ruleModel(), fixedDecider()]);
+	const model = system.port(ports.model);
+	const defaultDecider = system.port(ports.decider);
 	await platformWriter(database).addAccount({
 		id: accountId,
 		name: prefix,
@@ -158,6 +170,13 @@ export async function harness(prefix: string, initialCredits = HARNESS_CREDITS, 
 				tell: out.tell,
 				model,
 			});
+			const decide = decisions({
+				store: decisionWriter(database, accountId),
+				decider: options.decider ?? defaultDecider,
+				shadow: options.shadow ?? null,
+				timeoutMs: options.timeoutMs ?? 5000,
+				now: clock,
+			});
 			const work = taskWork({
 				accountId,
 				tasks: usedTasks,
@@ -187,8 +206,17 @@ export async function harness(prefix: string, initialCredits = HARNESS_CREDITS, 
 				actions: actionWriter(database, accountId),
 				checkAction: options.checkAction ?? (async () => undefined),
 				memory,
+				outcomes: decisionWriter(database, accountId),
 			});
-			const tools = petraTools({ writer, tasks: usedTasks, work, outbox: out, now: clock, memory });
+			const tools = petraTools({
+				writer,
+				decisions: decide,
+				tasks: usedTasks,
+				work,
+				outbox: out,
+				now: clock,
+				memory,
+			});
 			const night = nightJob({
 				writer: nightWriter(database, accountId),
 				memory,
@@ -211,7 +239,7 @@ export async function harness(prefix: string, initialCredits = HARNESS_CREDITS, 
 				nightJob: night.run,
 				...(options.conversation ? { conversation: options.conversation } : {}),
 			});
-			return { work, out, tools, memory, core, night };
+			return { work, out, tools, memory, core, night, decide };
 		},
 		claims: (taskId, attemptNo) => ({
 			accountId,

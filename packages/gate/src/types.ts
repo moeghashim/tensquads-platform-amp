@@ -105,6 +105,9 @@ export interface GateDeps {
 	now: () => string;
 	// The definitions of the bots. The kind of each action comes from them. The default is the test bot.
 	bots?: readonly BotDefinition[];
+	// The decision points of a money_limit rule with reasons (task 09). True only for three sure "yes" answers
+	// about the message of the customer of the task. With no function, such a rule always needs an approval.
+	reasons?: (action: { taskId: string; toolCallId: string; reasons: string }) => Promise<boolean>;
 }
 
 // One call of an action tool, from the gateway call "action".
