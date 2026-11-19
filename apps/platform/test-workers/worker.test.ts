@@ -72,8 +72,8 @@ describe("the interface of the Platform Worker", () => {
 
 	test("W3: the list and the stream give the same messages in the same sequence, and a client continues from its last number", async () => {
 		await post("/v1/commands", TEST_TOKENS.ownerA, ownerMessage("w3-1", "first"));
-		// Earlier tests start tasks, and their replies can come late. The list is complete when it is stable.
-		const listed = await settledMessages(TEST_TOKENS.ownerA, 0);
+		// Earlier tests start tasks, and their replies can come late. The list is complete when it has the reply of w3-1.
+		const listed = await settledMessages(TEST_TOKENS.ownerA, 0, "I started the task w3-1.");
 		const stream = await openStream(TEST_TOKENS.ownerA, 0);
 		await until(() => stream.received.length >= listed.length, "the backlog on the stream");
 		expect(stream.received).toEqual(listed);

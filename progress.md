@@ -818,3 +818,13 @@ Append-only learning log for commits and deploys. Add new entries only at the en
 - Actor: Moe Ghashim <moe@10claws.com>
 - Changed Paths:
   - docs/PRD.md
+
+## 2026-11-19T13:40:26.394Z
+- Trigger: commit
+- Learning: W3 took the list as complete when it was stable for 300 ms. On a slow runner the reply of w3-1 came later, and the test took it for the new message. Petra handles commands in sequence, so the list is complete when it has the reply of the last command.
+- Context: test(platform): make W3 wait for the reply of its own command
+- Branch: fix-w3-late-reply
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - apps/platform/test-workers/helpers.ts
+  - apps/platform/test-workers/worker.test.ts
