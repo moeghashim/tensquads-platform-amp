@@ -17,6 +17,8 @@ test("K2: the default rule fails a result that the rule model marked wrong, and 
 	assert.deepEqual(await checker.check({ ...request, result: "WRONG: The order is ready." }), {
 		pass: false,
 		reason: "The result is marked wrong.",
+		// Each check reports one unit "call", for the cost row of the checker model (requirement S1).
+		usage: [{ requestId: "rule-check-1", provider: "test", model: "rule-check", units: 1, unit: "call" }],
 	});
 	assert.equal((await checker.check({ ...request, result: "The order is ready." })).pass, true);
 });

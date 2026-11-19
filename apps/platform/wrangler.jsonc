@@ -30,6 +30,9 @@
 		// The time limit of one decider call (task 09), and the second decider of the shadow mode: "none" or "fixed".
 		"DECIDER_TIMEOUT_MS": "5000",
 		"SHADOW_DECIDER": "none",
+		// The value of one credit in millionths of a US dollar (5 cents), and the take time of a sandbox request (task 10).
+		"CREDIT_VALUE_MICROS": "50000",
+		"LAUNCHER_TAKE_TIME_MS": "30000",
 		// Only for the tests of the full path: each payment of the test adapter waits this long.
 		"PAYMENT_HOLD_MS": "0"
 	},

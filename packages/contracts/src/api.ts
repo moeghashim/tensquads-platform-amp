@@ -83,3 +83,8 @@ export const apiError = z
 	.strict();
 
 export type ApiError = z.infer<typeof apiError>;
+
+// The views of the schema admin (ARCHITECTURE section 7.6). GET /v1/admin/views/{name} gives one of them.
+export const ADMIN_VIEWS = ["account", "task_type", "bot", "model", "decision_point", "usage", "operations"] as const;
+
+export type AdminView = (typeof ADMIN_VIEWS)[number];

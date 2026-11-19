@@ -19,7 +19,7 @@ import {
 	startAnswer,
 	type TaskResult,
 } from "@tensquads/contracts";
-import type { Model, ModelAnswer, ObjectStore } from "@tensquads/core";
+import type { CallUsage, Model, ModelAnswer, ObjectStore } from "@tensquads/core";
 
 // The part of the task writer of Petra that the gateway uses. The writer of packages/petra has this shape.
 export interface GatewayTasks {
@@ -87,6 +87,20 @@ export interface GatewayActions {
 	): Promise<{ path: string; blobKey: string }[]>;
 }
 
+// The costs (packages/costs). This package does not import them (C2). Each row has its attempt and its key.
+export interface GatewayCosts {
+	modelCall(ref: { taskId: string; attemptNo: number; callNo: number }, answer: ModelAnswer): Promise<void>;
+	usage(
+		ref: { taskId: string; attemptNo: number; callNo: number },
+		kind: "checker model",
+		usage: readonly CallUsage[],
+	): Promise<void>;
+	// The milliseconds since the previous gateway call of the attempt.
+	sandbox(ref: { taskId: string; attemptNo: number; callNo: number }, ms: number): Promise<void>;
+	// True when the cost rows of the task, over all its attempts, are at the budget or above it (requirement S9).
+	overBudget(taskId: string, maxBudget: number): Promise<boolean>;
+}
+
 // The storage of the Durable Object. The keys of the gateway start with "petra_gw/" (section 7.3).
 export interface GatewayStorage {
 	get<T>(key: string): Promise<T | undefined>;
@@ -101,7 +115,7 @@ export type ResultChecker = (input: {
 	result: TaskResult;
 	// The full forget list of the task. The check tests that the result does not use a forgotten fact (D11).
 	forget: readonly string[];
-}) => Promise<ResultAnswer>;
+}) => Promise<ResultAnswer & { usage?: readonly CallUsage[] }>;
 
 export interface GatewayDeps {
 	// The account of this Petra. A pass of another account is refused.
@@ -112,6 +126,7 @@ export interface GatewayDeps {
 	objectStore: Pick<ObjectStore, "put" | "get">;
 	model: Model;
 	check: ResultChecker;
+	costs: GatewayCosts;
 	storage: GatewayStorage;
 	now: () => string;
 	// The commit of the Worker, for the versions of the attempt (requirement L11).
@@ -153,11 +168,11 @@ const OK = { ok: true } as const;
 
 type OpenTask = { bot: string; taskType: string; brief: Brief };
 
-function maxTurns(task: OpenTask): number {
+function limitsOf(task: OpenTask): { maxTurns: number; maxBudget: number } {
 	const bot = BOTS.find((item) => item.id === task.bot);
 	const taskType = bot?.taskTypes.find((item) => item.name === task.taskType);
 	if (!taskType) throw new Error(`The bot "${task.bot}" has no task type "${task.taskType}".`);
-	return taskType.limits.maxTurns;
+	return taskType.limits;
 }
 
 function botVersion(task: OpenTask): string {
@@ -167,6 +182,9 @@ function botVersion(task: OpenTask): string {
 }
 
 // The source reference of a trail row from one gateway call (section 7.1). The kind has hyphens for spaces.
+// The time of the last admitted call of the attempt, in the storage of Petra.
+const lastCallKey = (claims: PassClaims) => `petra_gw_at/${claims.taskId}/${claims.attemptNo}`;
+
 const trailRef = (claims: PassClaims, callNo: number, kind: string): string =>
 	`task/${claims.taskId}/${claims.attemptNo}/${callNo}/${kind.replaceAll(" ", "-")}`;
 
@@ -256,11 +274,14 @@ export function gateway(deps: GatewayDeps): Gateway {
 		// Petra stopped after the trail row and before she saved the answer. The row has the answer.
 		const earlier = await tasks.trailRow(sourceRef);
 		if (earlier) return (earlier.data as { answer: ModelAnswer }).answer;
-		// The limit counts the model calls of all attempts of the task (requirements L4, L5).
-		if ((await tasks.countTrail(taskId, "model call")) >= maxTurns(task)) return { limit: "max_turns" } as const;
-		// Task 10 adds the limit of budget.
+		// The limits count the model calls and the cost rows of all attempts of the task (requirements L4, L5, S9).
+		const limits = limitsOf(task);
+		if ((await tasks.countTrail(taskId, "model call")) >= limits.maxTurns) return { limit: "max_turns" } as const;
+		if (await deps.costs.overBudget(taskId, limits.maxBudget)) return { limit: "max_budget" } as const;
 		const answer = await deps.model.complete({ messages: call.messages, tools: call.tools });
 		await tasks.recordVersions(taskId, attemptNo, { provider: answer.provider, model: answer.model });
+		// The cost rows come before the trail row. If Petra stops between them, the call runs again: a real cost.
+		await deps.costs.modelCall({ taskId, attemptNo, callNo: call.callNo }, answer);
 		await tasks.addTrail({
 			sourceRef,
 			taskId,
@@ -279,10 +300,12 @@ export function gateway(deps: GatewayDeps): Gateway {
 		const { taskId, attemptNo } = claims;
 		// Only an answer of the bot goes to the check (section 4.2). Petra reads each other stop by its name.
 		const forget = call.result.stop === "success" ? (await tasks.inbox(taskId)).forget : [];
-		const verdict: ResultAnswer =
+		const checked =
 			call.result.stop === "success"
 				? await deps.check({ taskId, bot: task.bot, brief: task.brief, result: call.result, forget })
-				: { verdict: "stands", reason: `A result with the stop ${call.result.stop} has no check.` };
+				: { verdict: "stands" as const, reason: `A result with the stop ${call.result.stop} has no check.` };
+		const { usage, ...verdict } = checked;
+		if (usage) await deps.costs.usage({ taskId, attemptNo, callNo: call.callNo }, "checker model", usage);
 		const at = deps.now();
 		await tasks.addTrail({
 			sourceRef: trailRef(claims, call.callNo, "check"),
@@ -299,7 +322,17 @@ export function gateway(deps: GatewayDeps): Gateway {
 		return verdict;
 	}
 
-	async function work(task: OpenTask, claims: PassClaims, call: GatewayCall): Promise<GatewayAnswer> {
+	// The milliseconds since the previous gateway call of the attempt, by the clock of Petra (requirement S1).
+	// The runner does not give a time. Each admitted call notes its time.
+	const sandboxMs = (previous: number | undefined): number =>
+		previous === undefined ? 0 : Math.max(0, Date.parse(deps.now()) - previous);
+
+	async function work(
+		task: OpenTask,
+		claims: PassClaims,
+		call: GatewayCall,
+		previous?: number,
+	): Promise<GatewayAnswer> {
 		const { taskId, attemptNo } = claims;
 		switch (call.call) {
 			case "start":
@@ -307,6 +340,7 @@ export function gateway(deps: GatewayDeps): Gateway {
 			case "model":
 				return model(task, claims, call);
 			case "step":
+				await deps.costs.sandbox({ taskId, attemptNo, callNo: call.callNo }, sandboxMs(previous));
 				await tasks.addTrail({
 					sourceRef: trailRef(claims, call.callNo, "tool use"),
 					taskId,
@@ -345,13 +379,15 @@ export function gateway(deps: GatewayDeps): Gateway {
 			const admitted = await admit(claims, call);
 			if ("refused" in admitted) return admitted;
 			await deps.noteCall(claims);
+			const previousCall = await deps.storage.get<number>(lastCallKey(claims));
+			await deps.storage.put(lastCallKey(claims), Date.parse(deps.now()));
 			const key = `petra_gw/${claims.taskId}/${claims.attemptNo}/${call.callNo}`;
 			if (inProgress.has(key)) return { busy: true };
 			inProgress.add(key);
 			try {
 				const saved = await deps.storage.get<GatewayAnswer>(key);
 				if (saved !== undefined) return saved;
-				const answer = await work(admitted, claims, call);
+				const answer = await work(admitted, claims, call, previousCall);
 				if (isSaved(answer)) await deps.storage.put(key, answer);
 				return answer;
 			} finally {

@@ -49,6 +49,13 @@ export function serviceStatus(services: Services, id: string, kind: ActionKind):
 	return Promise.resolve("confirmed");
 }
 
+// The provider of the cost row of an action, or undefined for an action with no service.
+export function providerOf(services: Services, kind: ActionKind): string | undefined {
+	if (kind === "money") return services.payment.name ?? "payment";
+	if (kind === "public") return services.channel.name ?? "channel";
+	return undefined;
+}
+
 // The text that the owner reads about an action.
 export const describeAction = (tool: string, content: Record<string, unknown>): string =>
 	`${tool} ${canonicalJson(content)}`;

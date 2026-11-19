@@ -34,7 +34,7 @@ export function testChannel(options: SendOptions & { sent?: ChannelMessage[] } =
 		provides: [ports.channel],
 		needs: [],
 		apply: (ctx) => {
-			ctx.provide(ports.channel, recorder("channel-test", sent, options));
+			ctx.provide(ports.channel, { name: "test-channel", ...recorder("channel-test", sent, options) });
 		},
 	};
 }
@@ -47,7 +47,7 @@ export function testPayment(options: SendOptions & { paid?: PaymentOrder[] } = {
 		needs: [],
 		apply: (ctx) => {
 			const { send, status } = recorder("payment-test", paid, options);
-			ctx.provide(ports.payment, { pay: send, status });
+			ctx.provide(ports.payment, { name: "test-payment", pay: send, status });
 		},
 	};
 }

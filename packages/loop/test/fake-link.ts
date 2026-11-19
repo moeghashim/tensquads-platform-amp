@@ -36,7 +36,14 @@ const brief: Brief = {
 };
 
 export function text(value: string): ModelAnswer {
-	return { text: value, toolCalls: [], provider: "fake", model: "fake", usage: { inputTokens: 1, outputTokens: 1 } };
+	return {
+		text: value,
+		toolCalls: [],
+		provider: "fake",
+		model: "fake",
+		requestId: "r-1",
+		usage: { inputTokens: 1, outputTokens: 1 },
+	};
 }
 
 export function toolCall(id: string, name: string, input: Record<string, unknown> = {}): ModelAnswer {
@@ -45,6 +52,7 @@ export function toolCall(id: string, name: string, input: Record<string, unknown
 		toolCalls: [{ id, name, input }],
 		provider: "fake",
 		model: "fake",
+		requestId: "r-1",
 		usage: { inputTokens: 1, outputTokens: 1 },
 	};
 }

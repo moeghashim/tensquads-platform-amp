@@ -1,4 +1,5 @@
 // Two test adapters of the model port: a script of answers, and an echo.
+// The request id comes from the count of calls, so it repeats in the same way each run.
 import { type ModelAnswer, type ModelRequest, type Plugin, ports } from "@tensquads/core";
 
 // One answer of the script. Text, tool requests, an action request (a tool call to an action tool),
@@ -23,6 +24,7 @@ export function scriptedModel(script: readonly ScriptedAnswer[]): Plugin {
 		apply: (ctx) => {
 			let next = 0;
 			let calls = 0;
+			let requests = 0;
 			ctx.provide(ports.model, {
 				complete: async (request) => {
 					const step = script[next];
@@ -32,12 +34,20 @@ export function scriptedModel(script: readonly ScriptedAnswer[]): Plugin {
 						);
 					}
 					next += 1;
+					requests += 1;
 					const text = step.text ?? "";
 					const toolCalls = (step.toolCalls ?? []).map((call) => {
 						calls += 1;
 						return { id: `call-${calls}`, name: call.name, input: call.input ?? {} };
 					});
-					return { text, toolCalls, provider: "test", model: "scripted", usage: usage(request, text) };
+					return {
+						text,
+						toolCalls,
+						requestId: `scripted-${requests}`,
+						provider: "test",
+						model: "scripted",
+						usage: usage(request, text),
+					};
 				},
 			});
 		},
@@ -51,10 +61,13 @@ export function echoModel(): Plugin {
 		provides: [ports.model],
 		needs: [],
 		apply: (ctx) => {
+			let requests = 0;
 			ctx.provide(ports.model, {
 				complete: async (request) => {
+					requests += 1;
 					const text = [...request.messages].reverse().find((message) => message.role === "user")?.content ?? "";
-					return { text, toolCalls: [], provider: "test", model: "echo", usage: usage(request, text) };
+					const requestId = `echo-${requests}`;
+					return { text, toolCalls: [], requestId, provider: "test", model: "echo", usage: usage(request, text) };
 				},
 			});
 		},

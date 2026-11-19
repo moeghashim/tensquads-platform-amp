@@ -163,6 +163,7 @@ export const modelAnswer = z
 	.object({
 		text: z.string(),
 		toolCalls: z.array(z.object({ id, name: id, input: z.unknown() }).strict()),
+		requestId: id,
 		provider: z.string(),
 		model: z.string(),
 		usage: z.object({ inputTokens: z.int().nonnegative(), outputTokens: z.int().nonnegative() }).strict(),

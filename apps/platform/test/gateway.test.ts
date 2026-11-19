@@ -6,8 +6,9 @@ import test from "node:test";
 import { testBot } from "@tensquads/bots";
 import { attemptVersions, type Brief, type GatewayCall, type PassClaims, type TaskResult } from "@tensquads/contracts";
 import type { Database, ModelAnswer, ModelRequest } from "@tensquads/core";
+import { costs } from "@tensquads/costs";
 import { type GatewayAnswer, gateway, type ResultChecker } from "@tensquads/gateway";
-import { actionWriter, platformWriter, taskWriter } from "@tensquads/petra";
+import { actionWriter, costWriter, platformWriter, taskWriter } from "@tensquads/petra";
 
 import { testDatabase, uniqueId } from "./db.js";
 
@@ -92,11 +93,13 @@ async function setup(
 					toolCalls: [],
 					provider: "test",
 					model: "scripted",
+					requestId: "r-1",
 					usage: { inputTokens: 1, outputTokens: 1 },
 				};
 			},
 		},
 		check,
+		costs: costs({ store: costWriter(database, accountId), now: () => now }),
 		storage: memoryMap(),
 		now: () => now,
 		workerCommit: "worker-abc",
@@ -226,6 +229,7 @@ test("L5: a duplicate call number gets the saved answer, and a call in progress 
 			toolCalls: [],
 			provider: "test",
 			model: "scripted",
+			requestId: "r-1",
 			usage: { inputTokens: 1, outputTokens: 1 },
 		};
 	});

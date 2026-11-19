@@ -108,6 +108,8 @@ export interface GateDeps {
 	// The decision points of a money_limit rule with reasons (task 09). True only for three sure "yes" answers
 	// about the message of the customer of the task. With no function, such a rule always needs an approval.
 	reasons?: (action: { taskId: string; toolCallId: string; reasons: string }) => Promise<boolean>;
+	// One cost row for each call of an outside service that is "done" (requirement S1). The costs package gives it.
+	serviceCost?: (call: { taskId: string; attemptNo: number; toolCallId: string; provider: string }) => Promise<void>;
 }
 
 // One call of an action tool, from the gateway call "action".

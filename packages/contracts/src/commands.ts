@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { period } from "./admin.js";
+
 // The commands to Petra (ARCHITECTURE section 6.1).
 // The account is never a field. It comes from the identity of the caller.
 
@@ -155,7 +157,7 @@ const addCostShare = z
 		...base,
 		type: z.literal("AddCostShare"),
 		sharedCostId: id,
-		period: id,
+		period,
 		kind: z.enum(["storage", "database", "worker"]),
 		provider: id,
 		amount: z.int(),

@@ -1,7 +1,7 @@
 // The logic of Petra for one account (docs/ARCHITECTURE.md, sections 4.6 and 7.3).
 // The Durable Object class gives the storage, the model and the stream. This module has no Cloudflare import.
 import type { Command, OwnerMessage } from "@tensquads/contracts";
-import type { Model } from "@tensquads/core";
+import type { Model, ModelAnswer } from "@tensquads/core";
 
 import type { AccountReader, AccountWriter, EventOrigin, OwnerInput } from "./account-writer.js";
 import { customerRef } from "./customer.js";
@@ -35,6 +35,14 @@ export interface PetraDeps {
 	nightJob?: (localDate: string) => Promise<void>;
 	// The memory commands of the owner (packages/memory). This package does not import it (requirement C2).
 	memory?: CommandMemory;
+	// The cost rows of Petra (packages/costs): her model calls in a command, and the shares of a shared cost.
+	costs?: CommandCosts;
+}
+
+// The part of the costs that the commands use. Each row has a key, so a command that runs again adds no row.
+export interface CommandCosts {
+	modelCall(ref: { cause: string; taskId: string | null }, answer: ModelAnswer): Promise<void>;
+	share(command: Extract<Command, { type: "AddCostShare" }>): Promise<void>;
 }
 
 // The part of the memory that the commands use. Each method answers the owner.
@@ -76,12 +84,23 @@ export const PETRA_HANDLES = [
 	"RemoveCoreItem",
 	"ForgetFact",
 	"UndoForget",
+	"AddCostShare",
 ] as const;
 
 // The text that Petra gives her conversation for one owner message. The model reads the command id and the
 // channel from the first part, and gives them to the tool that it selects.
 export function conversationText(commandId: string, channel: string, text: string): string {
 	return `[command ${commandId} on ${channel}] ${text}`;
+}
+
+// The command of a model request of Petra: the command id of the newest owner message in her conversation, or
+// undefined when the request has none. Petra uses it for the key of the cost rows (section 7.1).
+const COMMAND_TEXT = /^\[command (\S+) on \S+\] /;
+export function conversationCommand(messages: readonly { role: string; content: string }[]): string | undefined {
+	const owner = [...messages]
+		.reverse()
+		.find((message) => message.role === "user" && COMMAND_TEXT.test(message.content));
+	return owner ? COMMAND_TEXT.exec(owner.content)?.[1] : undefined;
 }
 
 // The first input of a new conversation: the last messages of the owner. It has no command, so it starts no tool.
@@ -172,6 +191,7 @@ export function petra(deps: PetraDeps): Petra {
 		// A command that runs again keeps its first reply. Petra does not ask the model again.
 		if ((await writer.messageSeq(sourceRef)) !== undefined) return true;
 		const answer = await deps.model.complete({ messages: [{ role: "user", content: text }], tools: [] });
+		await deps.costs?.modelCall({ cause: `cmd/${commandId}`, taskId: null }, answer);
 		await out.tell({ sourceRef, channel, body: { type: "reply", text: answer.text } });
 		return true;
 	}
@@ -214,6 +234,9 @@ export function petra(deps: PetraDeps): Petra {
 			});
 		} else if (command.type === "ExternalEvent") {
 			await handleEvent(command);
+		} else if (command.type === "AddCostShare") {
+			// One cost row for the share of this account (section 7.6). Its key is the shared-cost id.
+			await deps.costs?.share(command);
 		} else if (!(await handleMemory(deps.memory, command))) {
 			await handleTask(command);
 		}

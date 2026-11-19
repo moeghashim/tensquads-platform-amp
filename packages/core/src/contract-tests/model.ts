@@ -18,6 +18,7 @@ function assertCount(value: number, label: string): void {
 
 function assertAnswer(answer: ModelAnswer): void {
 	assert.equal(typeof answer.text, "string", "The text must be a string.");
+	assert.ok(answer.requestId.length > 0, "The request id must not be empty.");
 	assert.ok(answer.provider.length > 0, "The provider must not be empty.");
 	assert.ok(answer.model.length > 0, "The model must not be empty.");
 	assertCount(answer.usage.inputTokens, "The input token count");

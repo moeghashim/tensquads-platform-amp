@@ -1,7 +1,7 @@
 // The check of a result (requirements K1 to K3). The tests by code run first, then the checker model.
 // A failed check answers "continue" with the reason, and the loop of the bot continues inside its limits.
 import type { Brief, ResultAnswer, TaskResult } from "@tensquads/contracts";
-import type { CheckerModel } from "@tensquads/core";
+import type { CallUsage, CheckerModel } from "@tensquads/core";
 
 import { CODE_TESTS, type CodeTest } from "./code-tests.js";
 
@@ -14,7 +14,8 @@ export interface CheckInput {
 	forget: readonly string[];
 }
 
-export type Check = (input: CheckInput) => Promise<ResultAnswer>;
+// The usage of the checker model goes with the answer, for the cost rows (requirement S1).
+export type Check = (input: CheckInput) => Promise<ResultAnswer & { usage?: readonly CallUsage[] }>;
 
 // The checker model is a port with its own row in the plug-in list, so the maker is not the checker (K2).
 export function checker(model: CheckerModel, tests: Readonly<Record<string, readonly CodeTest[]>> = CODE_TESTS): Check {
@@ -27,6 +28,11 @@ export function checker(model: CheckerModel, tests: Readonly<Record<string, read
 			if (failure !== undefined) return { verdict: "continue", reason: `Tests by code: ${failure}` };
 		}
 		const verdict = await model.check({ taskId, goal: brief.goal, result: result.answer });
-		return { verdict: verdict.pass ? "stands" : "continue", reason: `Checker model: ${verdict.reason}` };
+		const reason = `Checker model: ${verdict.reason}`;
+		return {
+			verdict: verdict.pass ? "stands" : "continue",
+			reason,
+			...(verdict.usage ? { usage: verdict.usage } : {}),
+		};
 	};
 }

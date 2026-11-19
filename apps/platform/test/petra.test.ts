@@ -74,6 +74,7 @@ test("P1: two commands for one account are handled one after the other", async (
 				toolCalls: [],
 				provider: "test",
 				model: "slow",
+				requestId: "r-1",
 				usage: { inputTokens: 1, outputTokens: 1 },
 			};
 		},

@@ -23,6 +23,7 @@ const modelBody = {
 	toolCalls: [{ id: "c-1", name: "read_file", input: { path: "a" } }],
 	provider: "fake",
 	model: "fake",
+	requestId: "r-1",
 	usage: { inputTokens: 1, outputTokens: 2 },
 };
 

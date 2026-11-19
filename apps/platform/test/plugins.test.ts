@@ -106,7 +106,8 @@ test("L8: one changed row of the list of Petra replaces the checker, and the oth
 	assert.equal(list.filter((row, index) => row !== petraPlugins[index]).length, 1);
 	const system = await startSystem(list);
 	const verdict = await system.port(ports.checkerModel).check({ taskId: "t", goal: "g", result: "r" });
-	assert.deepEqual(verdict, { pass: false, reason: "The result does not answer the goal." });
+	const usage = [{ requestId: "rule-check-1", provider: "test", model: "rule-check", units: 1, unit: "call" }];
+	assert.deepEqual(verdict, { pass: false, reason: "The result does not answer the goal.", usage });
 	const before = await startSystem(petraPlugins);
 	assert.equal((await before.port(ports.checkerModel).check({ taskId: "t", goal: "g", result: "r" })).pass, true);
 	await system.stop();
@@ -183,7 +184,16 @@ test("Q8: the model decider replaces the row of the fixed decider, and no other 
 	assert.equal(before.port(ports.decider).name, "fixed");
 	assert.equal(after.port(ports.decider).name, "model");
 	// The rule model of the list answers the questions of the model decider (task 09).
-	assert.deepEqual(await after.port(ports.decider).ask([question]), [{ id: "q-1", answer: "yes", probability: 0.95 }]);
+	const [answer] = await after.port(ports.decider).ask([question]);
+	assert.deepEqual(answer && [answer.id, answer.answer, answer.probability], ["q-1", "yes", 0.95]);
+	// The model decider reports the tokens of its model call, for the cost rows (requirement S1).
+	assert.deepEqual(
+		answer?.usage?.map((item) => [item.provider, item.model, item.unit]),
+		[
+			["test", "rule", "1M input tokens"],
+			["test", "rule", "1M output tokens"],
+		],
+	);
 	assert.equal(after.port(ports.shadowDecider), null, "The row of the shadow mode does not change.");
 	await before.stop();
 	await after.stop();

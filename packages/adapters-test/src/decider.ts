@@ -35,15 +35,21 @@ function defaultAnswer(question: DeciderQuestion, fixed: string | undefined): st
 
 export function fixedDecider(options: FixedDeciderOptions = {}): Plugin {
 	const port = options.shadow ? ports.shadowDecider : ports.decider;
+	const name = options.shadow ? "shadow-fixed" : "fixed";
+	let calls = 0;
 	const decider: Decider = {
-		name: options.shadow ? "shadow-fixed" : "fixed",
-		ask: async (questions) =>
-			questions.map((question) => {
+		name,
+		ask: async (questions) => {
+			// Each call reports one unit "call", with a request id from the count of calls (requirement S1).
+			calls += 1;
+			const usage = [{ requestId: `${name}-${calls}`, provider: "test", model: name, units: 1, unit: "call" }];
+			return questions.map((question) => {
 				const point = options.points?.[question.point];
 				const answer = point?.answer ?? defaultAnswer(question, options.answer);
 				const probability = point?.probability ?? options.probability ?? DEFAULT_PROBABILITY;
-				return { id: question.id, answer, probability };
-			}),
+				return { id: question.id, answer, probability, usage };
+			});
+		},
 	};
 	return {
 		name: options.shadow ? "shadow-decider-fixed" : "decider-fixed",

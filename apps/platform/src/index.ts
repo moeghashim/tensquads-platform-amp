@@ -1,9 +1,16 @@
 // The Platform Worker (docs/ARCHITECTURE.md, section 6.5). It holds no state and makes no decision.
 // It checks who calls, then gives the call to the Petra of the account or to the Platform object.
-import { exitReport, gatewayCall, messageListQuery, ownerCommand } from "@tensquads/contracts";
+import {
+	ADMIN_VIEWS,
+	adminCommand,
+	exitReport,
+	gatewayCall,
+	messageListQuery,
+	ownerCommand,
+} from "@tensquads/contracts";
 import { type Principal, ports, startSystem } from "@tensquads/core";
 import { verifyPass } from "@tensquads/gateway";
-import { type JobMessage, PETRA_HANDLES, PLATFORM_HANDLES } from "@tensquads/petra";
+import { type JobMessage, PETRA_HANDLES } from "@tensquads/petra";
 
 import { type Env, errorResponse, readSettings, SettingError, type Settings } from "./env.js";
 import type { PetraObject } from "./petra-object.js";
@@ -36,6 +43,8 @@ async function readJson(request: Request): Promise<unknown> {
 }
 
 const notAvailable = () => errorResponse(400, "not_available", "This command is not available yet.");
+const notFound = () => errorResponse(404, "not_found", "This call does not exist.");
+const forbidden = () => errorResponse(403, "forbidden", "This role cannot use this call.");
 
 // True when a handler exists in this task. The other commands get "not_available" before any write.
 const handles = (list: readonly string[], type: unknown) => typeof type === "string" && list.includes(type);
@@ -96,24 +105,77 @@ const OWNER_ROUTES: readonly OwnerRoute[] = [
 ];
 
 function ownerCall(request: Request, env: Env, url: URL, owner: Owner): Promise<Response> | undefined {
+	// An owner cannot use an admin call (requirement S8).
+	if (isAdminPath(request, url)) return Promise.resolve(forbidden());
 	const route = OWNER_ROUTES.find((item) => item.method === request.method && item.path.test(url.pathname));
 	// The account comes from the sign-in, never from the body (section 6.5).
 	return route?.handle(request, env.PETRA.get(env.PETRA.idFromName(owner.accountId)), url, owner);
 }
 
 async function sendAdminCommand(request: Request, env: Env, admin: Admin): Promise<Response> {
-	const body = await readJson(request);
-	if (!handles(PLATFORM_HANDLES, (body as { type?: unknown } | undefined)?.type)) return notAvailable();
+	const parsed = adminCommand.safeParse(await readJson(request));
+	if (!parsed.success) return invalid();
 	return platformOf(env).fetch("https://platform/admin", {
 		method: "POST",
-		body: JSON.stringify({ command: body, adminRef: admin.adminId }),
+		body: JSON.stringify({ command: parsed.data, adminRef: admin.adminId }),
 	});
 }
 
-function adminCall(request: Request, env: Env, url: URL, admin: Admin): Promise<Response> | undefined {
-	const isAdminCommand = `${request.method} ${url.pathname}` === "POST /v1/admin/commands";
-	return isAdminCommand ? sendAdminCommand(request, env, admin) : undefined;
+// One view of the schema admin, as rows (section 7.6). The Platform object reads it with the role of the views.
+function readView(env: Env, name: string): Promise<Response> {
+	if (!(ADMIN_VIEWS as readonly string[]).includes(name)) return Promise.resolve(notFound());
+	return platformOf(env).fetch(`https://platform/views/${name}`);
 }
+
+// The one trail read of a super admin (section 6.5). Petra records the read, then gives the rows.
+function readTrail(env: Env, url: URL, admin: Admin, accountId: string, taskId: string): Promise<Response> {
+	const readId = url.searchParams.get("readId");
+	if (!readId) return Promise.resolve(invalid());
+	const petra = env.PETRA.get(env.PETRA.idFromName(accountId));
+	return petra.fetch("https://petra/admin-trail", {
+		method: "POST",
+		body: JSON.stringify({ readId, adminRef: admin.adminId, taskId }),
+	});
+}
+
+interface AdminRoute {
+	method: string;
+	path: RegExp;
+	handle: (request: Request, env: Env, url: URL, admin: Admin, match: RegExpExecArray) => Promise<Response>;
+}
+
+// The admin calls of section 6.5. No other admin call exists (requirement S8).
+const ADMIN_ROUTES: readonly AdminRoute[] = [
+	{
+		method: "POST",
+		path: /^\/v1\/admin\/commands$/,
+		handle: (request, env, _url, admin) => sendAdminCommand(request, env, admin),
+	},
+	{
+		method: "GET",
+		path: /^\/v1\/admin\/views\/([^/]+)$/,
+		handle: (_request, env, _url, _admin, match) => readView(env, match[1] ?? ""),
+	},
+	{
+		method: "GET",
+		path: /^\/v1\/admin\/accounts\/([^/]+)\/tasks\/([^/]+)\/trail$/,
+		handle: (_request, env, url, admin, match) =>
+			readTrail(env, url, admin, decodeURIComponent(match[1] ?? ""), decodeURIComponent(match[2] ?? "")),
+	},
+];
+
+function adminCall(request: Request, env: Env, url: URL, admin: Admin): Promise<Response> | undefined {
+	// A super admin cannot use an owner call (requirement S8).
+	if (isOwnerPath(request, url)) return Promise.resolve(forbidden());
+	const route = ADMIN_ROUTES.find((item) => item.method === request.method && item.path.test(url.pathname));
+	return route?.handle(request, env, url, admin, route.path.exec(url.pathname) as RegExpExecArray);
+}
+
+// True when the path is an owner call or an admin call, for the answer "forbidden" to the other role (S8).
+const isOwnerPath = (request: Request, url: URL) =>
+	OWNER_ROUTES.some((item) => item.method === request.method && item.path.test(url.pathname));
+const isAdminPath = (request: Request, url: URL) =>
+	ADMIN_ROUTES.some((item) => item.method === request.method && item.path.test(url.pathname));
 
 const platformOf = (env: Env) => env.PLATFORM.get(env.PLATFORM.idFromName(PLATFORM_NAME));
 
@@ -170,9 +232,8 @@ const MACHINE_ROUTES: Record<string, (request: Request, env: Env, settings: Sett
 async function personCall(request: Request, env: Env, url: URL): Promise<Response> {
 	const caller = await whoCalls(request);
 	if (!caller) return unauthorized();
-	const answer =
-		caller.kind === "owner" ? await ownerCall(request, env, url, caller) : await adminCall(request, env, url, caller);
-	return answer ?? errorResponse(404, "not_found", "This call does not exist.");
+	const answer = caller.kind === "owner" ? ownerCall(request, env, url, caller) : adminCall(request, env, url, caller);
+	return (await answer) ?? notFound();
 }
 
 async function route(request: Request, env: Env): Promise<Response> {

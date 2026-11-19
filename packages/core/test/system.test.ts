@@ -9,6 +9,7 @@ const fixedModel = {
 		toolCalls: [],
 		provider: "test",
 		model: "fixed",
+		requestId: "r-1",
 		usage: { inputTokens: 1, outputTokens: 1 },
 	}),
 };
