@@ -13,7 +13,8 @@ const COMMAND = /^\[command (\S+) on (\S+)\] ([\s\S]*)$/;
 // "refund 40 then 45 after a restart" asks for 40 the first time and for 45 each later time with the same
 // tool-call id (requirement G8). "append 2 lines" makes 2 turns, each with one append_file call to notes.txt,
 // then one read_file call of notes.txt (requirement G11). The last answer repeats each message of the owner that the bot got after the
-// brief, so a test can count it (requirement L3).
+// brief, so a test can count it (requirement L3). The goals "wrong then right" and "always wrong" mark answers
+// wrong for the check (requirement K3).
 const GOAL = /^Goal: (.*)$/m;
 const REFUND = /\brefund (\d+(?:\.\d+)?)(?: then (\d+(?:\.\d+)?) after a restart)?(?: to (\S+))?/i;
 const REPLY = /\breply (.+?) to (\S+)/i;
@@ -67,7 +68,18 @@ function botAnswer(request: ModelRequest, goal: string, seen: Seen): ModelAnswer
 	if (call) return answer(request, "", [call]);
 	const users = request.messages.filter((message) => message.role === "user").slice(1);
 	const outputs = results.map((message) => (JSON.parse(message.content) as { output: string }).output);
-	return answer(request, [`Result: ${goal}`, ...users.map((m) => `Message: ${m.content}`), ...outputs].join("\n"));
+	const lines = [`Result: ${goal}`, ...users.map((m) => `Message: ${m.content}`), ...outputs].join("\n");
+	return answer(request, wrongNow(goal, request) ? `${WRONG}${lines}` : lines);
+}
+
+// "always wrong" marks each answer wrong. "wrong then right" marks only the first answer wrong (task 06).
+// The rule checker fails an answer with this mark, so a test can see the loop continue after a failed check.
+const WRONG = "WRONG: ";
+
+function wrongNow(goal: string, request: ModelRequest): boolean {
+	if (/\balways wrong\b/i.test(goal)) return true;
+	if (!/\bwrong then right\b/i.test(goal)) return false;
+	return !request.messages.some((message) => message.role === "assistant" && message.content.startsWith(WRONG));
 }
 
 // "stop" stops a task. A status question tells the status. Each other message goes to "start a task".

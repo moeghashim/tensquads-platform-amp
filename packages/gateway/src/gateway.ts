@@ -91,8 +91,13 @@ export interface GatewayStorage {
 	put(key: string, value: unknown): Promise<void>;
 }
 
-// The check of a result. In task 04 the double always says "stands" (task 06 replaces it).
-export type ResultChecker = (input: { taskId: string; brief: Brief; result: TaskResult }) => Promise<ResultAnswer>;
+// The check of a result: the tests by code of the bot, then the checker model (requirement K1).
+export type ResultChecker = (input: {
+	taskId: string;
+	bot: string;
+	brief: Brief;
+	result: TaskResult;
+}) => Promise<ResultAnswer>;
 
 export interface GatewayDeps {
 	// The account of this Petra. A pass of another account is refused.
@@ -264,7 +269,11 @@ export function gateway(deps: GatewayDeps): Gateway {
 
 	async function result(task: OpenTask, claims: PassClaims, call: Extract<GatewayCall, { call: "result" }>) {
 		const { taskId, attemptNo } = claims;
-		const verdict = await deps.check({ taskId, brief: task.brief, result: call.result });
+		// Only an answer of the bot goes to the check (section 4.2). Petra reads each other stop by its name.
+		const verdict: ResultAnswer =
+			call.result.stop === "success"
+				? await deps.check({ taskId, bot: task.bot, brief: task.brief, result: call.result })
+				: { verdict: "stands", reason: `A result with the stop ${call.result.stop} has no check.` };
 		const at = deps.now();
 		await tasks.addTrail({
 			sourceRef: `gw/${taskId}/${attemptNo}/${call.callNo}`,

@@ -2,6 +2,7 @@
 // The logic is in the petra package. This class gives it the storage, the plug-ins, the loop, the gateway and the stream.
 
 import { DurableObject } from "cloudflare:workers";
+import { checker } from "@tensquads/checker";
 import { command as commandSchema, type GatewayCall, type OwnerMessage, type PassClaims } from "@tensquads/contracts";
 import { ports, startSystem } from "@tensquads/core";
 import { gate } from "@tensquads/gate";
@@ -122,7 +123,6 @@ export class PetraObject extends DurableObject<Env> {
 				wakeChanged: (at) => void this.arm(at),
 			});
 			const core = petra({ writer, storage, model, now, send, outbox: out, conversation: loop, work });
-			const checker = system.port(ports.checkerModel);
 			const gw = gateway({
 				accountId,
 				tasks,
@@ -130,10 +130,7 @@ export class PetraObject extends DurableObject<Env> {
 				gate: actionGate,
 				objectStore: system.port(ports.objectStore),
 				model,
-				check: async ({ taskId, brief, result }) => {
-					const verdict = await checker.check({ taskId, goal: brief.goal, result: result.answer });
-					return { verdict: verdict.pass ? "stands" : "continue", reason: verdict.reason };
-				},
+				check: checker(system.port(ports.checkerModel)),
 				storage,
 				now,
 				workerCommit: settings.workerCommit,

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { ruleChecker, scriptedModel } from "@tensquads/adapters-test";
+import { testBot } from "@tensquads/bots";
+import { checker } from "@tensquads/checker";
 import { type Plugin, type PortKey, ports, startSystem } from "@tensquads/core";
 
 import { petraPlugins as petraList } from "../src/plugins/petra.js";
@@ -105,6 +107,60 @@ test("L8: one changed row of the list of Petra replaces the checker, and the oth
 	assert.deepEqual(verdict, { pass: false, reason: "The result does not answer the goal." });
 	const before = await startSystem(petraPlugins);
 	assert.equal((await before.port(ports.checkerModel).check({ taskId: "t", goal: "g", result: "r" })).pass, true);
+	await system.stop();
+	await before.stop();
+});
+
+// A second adapter of the checker model port. It fails each result that does not name the shop.
+const shopChecker: Plugin = {
+	name: "checker-model-shop",
+	provides: [ports.checkerModel],
+	needs: [],
+	apply: (ctx) => {
+		ctx.provide(ports.checkerModel, {
+			check: async ({ result }) =>
+				/\bshop\b/i.test(result)
+					? { pass: true, reason: "The result names the shop." }
+					: { pass: false, reason: "The result does not name the shop." },
+		});
+	},
+};
+
+test("K2: a second adapter replaces the row of the checker model, and the row of the model of the bot does not change", async () => {
+	const list = petraPlugins.map((row) => (row.provides.includes(ports.checkerModel) ? shopChecker : row));
+	assert.equal(list.filter((row, index) => row !== petraPlugins[index]).length, 1);
+	const modelRow = petraPlugins.find((row) => row.provides.includes(ports.model));
+	assert.equal(modelRow?.name, "model-rule");
+	assert.ok(list.includes(modelRow), "The row of the model of the bot is the same row.");
+	assert.notEqual(modelRow, shopChecker, "The maker is not the checker.");
+
+	const brief = {
+		goal: "Tell the hours.",
+		done: "The owner has the answer.",
+		facts: [],
+		limits: { maxTurns: 10, maxBudget: 0.5 },
+		notInTask: [],
+		replyTo: "t",
+	};
+	const result = (answer: string) => ({
+		stop: "success" as const,
+		answer,
+		evidence: [],
+		proposedFacts: [],
+		notes: [],
+	});
+	const system = await startSystem(list);
+	const check = checker(system.port(ports.checkerModel));
+	const input = { taskId: "t", bot: testBot.id, brief };
+	assert.deepEqual(await check({ ...input, result: result("Open at 9.") }), {
+		verdict: "continue",
+		reason: "Checker model: The result does not name the shop.",
+	});
+	assert.equal((await check({ ...input, result: result("The shop opens at 9.") })).verdict, "stands");
+	// The model of the bot is the rule model in both lists.
+	const before = await startSystem(petraPlugins);
+	const request = { messages: [{ role: "user" as const, content: "Goal: read 1 file" }], tools: [] };
+	assert.deepEqual(await system.port(ports.model).complete(request), await before.port(ports.model).complete(request));
 	await system.stop();
 	await before.stop();
 });

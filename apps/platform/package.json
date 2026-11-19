@@ -27,6 +27,7 @@
 		"@tensquads/bots": "0.0.2",
 		"@tensquads/contracts": "0.0.2",
 		"@tensquads/core": "0.0.2",
+		"@tensquads/checker": "0.0.2",
 		"@tensquads/gate": "0.0.2",
 		"@tensquads/gateway": "0.0.2",
 		"@tensquads/loop": "0.0.2",
