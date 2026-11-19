@@ -1,4 +1,4 @@
-import type { InboxAnswer, ResultAnswer, StartAnswer, TaskResult } from "@tensquads/contracts";
+import type { ActionAnswer, InboxAnswer, ResultAnswer, StartAnswer, TaskResult } from "@tensquads/contracts";
 import type { ModelAnswer, ModelMessage } from "@tensquads/core";
 
 // The link is the gateway client of a runner (ARCHITECTURE section 3.5).
@@ -22,6 +22,13 @@ export interface StepCall {
 	summary: string;
 }
 
+// One request for an action (requirement G1). The id of the action is the task id and the tool-call id (G5).
+export interface ActionCall {
+	toolCallId: string;
+	tool: string;
+	content: Record<string, unknown>;
+}
+
 export interface Link {
 	start(): Promise<StartAnswer>;
 	model(call: ModelCall): Promise<ModelAnswer | ModelLimit>;
@@ -30,6 +37,10 @@ export interface Link {
 	// The copy of the journal is base64 text.
 	journal(copy: string): Promise<void>;
 	result(result: TaskResult): Promise<ResultAnswer>;
+	// The gate does the action, refuses it, or tells the tool to wait for the owner (section 4.4).
+	action(call: ActionCall): Promise<ActionAnswer>;
+	// Saves one changed file to the draft store (requirement G11). The body is base64 text.
+	draft(path: string, body: string): Promise<void>;
 }
 
 export type RefusalReason = "pass" | "runner" | "attempt" | "task";

@@ -4,7 +4,9 @@ import type { OwnerMessage, PassClaims } from "@tensquads/contracts";
 import type { Database, SandboxRequest } from "@tensquads/core";
 import { signPass } from "@tensquads/gateway";
 import {
+	type ActionWriter,
 	accountWriter,
+	actionWriter,
 	type JobMessage,
 	outbox,
 	type PetraStorage,
@@ -38,6 +40,8 @@ export interface BuildOptions {
 	// Runs before the request goes to the list. A throw here stops Petra at step 4.
 	beforeSandbox?: () => void;
 	afterSandbox?: () => void;
+	// The "check action" job of the gate. The default does nothing.
+	checkAction?: (commandId: string, actionId: string) => Promise<void>;
 }
 
 export interface Harness {
@@ -45,6 +49,7 @@ export interface Harness {
 	accountId: string;
 	writer: ReturnType<typeof accountWriter>;
 	tasks: Tasks;
+	actions: ActionWriter;
 	storage: ReturnType<typeof memoryStorage>;
 	// The list of the Platform object: one request for each task and attempt.
 	list: Map<string, SandboxRequest>;
@@ -86,6 +91,7 @@ export async function harness(prefix: string): Promise<Harness> {
 		accountId,
 		writer,
 		tasks,
+		actions: actionWriter(database, accountId),
 		storage,
 		list,
 		jobs,
@@ -123,6 +129,8 @@ export async function harness(prefix: string): Promise<Harness> {
 				creditsSufficient: async () => true,
 				settings: SETTINGS,
 				now: clock,
+				actions: actionWriter(database, accountId),
+				checkAction: options.checkAction ?? (async () => undefined),
 			});
 			const tools = petraTools({ writer, tasks: usedTasks, work, outbox: out, now: clock });
 			return { work, out, tools };

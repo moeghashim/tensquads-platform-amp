@@ -34,7 +34,14 @@ const MARKER_KEY = "petra_marker";
 const HISTORY_SIZE = 20;
 
 // The command handlers of this task. Each later task adds its commands.
-export const PETRA_HANDLES = ["OwnerMessage", "GrantCredits", "OwnerAnswer", "CancelTask"] as const;
+export const PETRA_HANDLES = [
+	"OwnerMessage",
+	"GrantCredits",
+	"OwnerAnswer",
+	"CancelTask",
+	"SetRule",
+	"ApprovalDecision",
+] as const;
 
 // The text that Petra gives her conversation for one owner message. The model reads the command id and the
 // channel from the first part, and gives them to the tool that it selects.
@@ -57,6 +64,13 @@ export interface Petra {
 	// After a start: makes the work list again from the events that are "received" (section 7.3).
 	// After a loss of the storage, it also makes a new conversation and sends the sandbox requests again (L14).
 	recover(): Promise<void>;
+}
+
+// The check jobs of the "jobs" queue. The night job comes in a later task.
+async function runJob(work: TaskWork, command: Extract<Command, { type: "RunJob" }>): Promise<void> {
+	if (!command.targetId) return;
+	if (command.job === "check task") await work.checkTask(command.commandId, command.targetId);
+	if (command.job === "check action") await work.checkAction(command.commandId, command.targetId);
 }
 
 export function petra(deps: PetraDeps): Petra {
@@ -91,9 +105,9 @@ export function petra(deps: PetraDeps): Petra {
 		else if (command.type === "SandboxExited") await work.sandboxExited(command);
 		else if (command.type === "OwnerAnswer") await work.ownerAnswer(command);
 		else if (command.type === "ResendSandboxRequests") await work.resendRequests();
-		else if (command.type === "RunJob" && command.job === "check task" && command.targetId) {
-			await work.checkTask(command.commandId, command.targetId);
-		}
+		else if (command.type === "SetRule") await work.setRule(command);
+		else if (command.type === "ApprovalDecision") await work.approvalDecision(command);
+		else if (command.type === "RunJob") await runJob(work, command);
 	}
 
 	async function handle(command: Command): Promise<void> {

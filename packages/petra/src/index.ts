@@ -1,4 +1,5 @@
 export * from "./account-writer.js";
+export * from "./action-writer.js";
 export * from "./outbox.js";
 export * from "./petra.js";
 export * from "./petra-tools.js";

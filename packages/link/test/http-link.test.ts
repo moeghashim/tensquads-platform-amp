@@ -39,6 +39,7 @@ const startBody = {
 	forget: [],
 	journal: null,
 	signals: [],
+	drafts: [],
 };
 
 interface Seen {
@@ -196,4 +197,42 @@ test("an answer that does not pass its schema is an error", async () => {
 	const { fakeFetch } = fakeWorker([{ status: 200, body: { verdict: "maybe" } }]);
 	const result = { stop: "success" as const, answer: "a", evidence: [], proposedFacts: [], notes: [] };
 	await assert.rejects(httpLink(options(fakeFetch)).result(result), /does not pass its schema/);
+});
+
+test("G1: an action call goes to the gateway with the tool-call id and the content, and gives the answer", async () => {
+	const { seen, fakeFetch } = fakeWorker([
+		{ status: 200, body: { busy: true } },
+		{ status: 200, body: { status: "wait" } },
+		{ status: 200, body: { status: "done", answer: { sent: 1 } } },
+		{ status: 200, body: { status: "refused", reason: "The owner rejected it." } },
+	]);
+	const link = httpLink(options(fakeFetch));
+	const call = { toolCallId: "c-1", tool: "refund", content: { amount: 40 } };
+	assert.deepEqual(await link.action(call), { status: "wait" });
+	assert.deepEqual(await link.action(call), { status: "done", answer: { sent: 1 } });
+	assert.deepEqual(await link.action(call), { status: "refused", reason: "The owner rejected it." });
+	// After busy, the same call goes again with the same call number.
+	assert.deepEqual(
+		seen.map((s) => s.call.callNo),
+		[1, 1, 2, 3],
+	);
+	assert.deepEqual(seen[0]?.call, { call: "action", callNo: 1, runnerId: "runner-1", ...call });
+});
+
+test("G1: an answer of action that does not pass its schema is an error", async () => {
+	const { fakeFetch } = fakeWorker([{ status: 200, body: { status: "sent" } }]);
+	const call = { toolCallId: "c-1", tool: "refund", content: {} };
+	await assert.rejects(httpLink(options(fakeFetch)).action(call), /does not pass its schema/);
+});
+
+test("G11: a draft call sends the path and the base64 body, and tries again after a server error", async () => {
+	const { seen, fakeFetch } = fakeWorker([{ status: 503 }, ok]);
+	await httpLink(options(fakeFetch)).draft("notes.txt", "YQo=");
+	assert.deepEqual(
+		seen.map((s) => s.call),
+		[
+			{ call: "draft", callNo: 1, runnerId: "runner-1", path: "notes.txt", body: "YQo=" },
+			{ call: "draft", callNo: 1, runnerId: "runner-1", path: "notes.txt", body: "YQo=" },
+		],
+	);
 });

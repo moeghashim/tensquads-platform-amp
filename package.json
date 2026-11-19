@@ -45,7 +45,8 @@
 		"db:setup": "npm run db:migrate && npm run db:users",
 		"dev:platform": "node scripts/dev.mjs",
 		"demo:platform": "node scripts/demo-platform.mjs",
-		"demo:loop": "node scripts/demo-loop.mjs"
+		"demo:loop": "node scripts/demo-loop.mjs",
+		"demo:gate": "node scripts/demo-gate.mjs"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.6.6",

@@ -1,7 +1,10 @@
-// The tools of the test bot that run in the sandbox. Each one is a pure function: it reads no disk and no network.
-// An error goes to the model as the result of the tool.
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 
-export type BotTool = (input: Record<string, unknown>) => Promise<string>;
+// The tools of the test bot that run in the sandbox. They use no network.
+// The files of a task are in the work directory that the loop gives. An error goes to the model as the result.
+
+export type BotTool = (input: Record<string, unknown>, workDir: string) => Promise<string>;
 
 // The files that the tool read_file can read. They are part of the bot, so a test knows each answer.
 export const TEST_FILES: Readonly<Record<string, string>> = {
@@ -9,16 +12,49 @@ export const TEST_FILES: Readonly<Record<string, string>> = {
 	"shop/prices.txt": "A small box costs 12 dollars. A large box costs 20 dollars.",
 };
 
-export const readFile: BotTool = async (input) => {
-	const path = input.path;
-	if (typeof path !== "string") {
-		throw new Error('The tool read_file needs the text field "path".');
+function textField(tool: string, input: Record<string, unknown>, name: string): string {
+	const value = input[name];
+	if (typeof value !== "string") {
+		throw new Error(`The tool ${tool} needs the text field "${name}".`);
 	}
+	return value;
+}
+
+// The full path of a file of the work directory. A path out of the directory is an error.
+function workFile(workDir: string, path: string): string {
+	const full = resolve(workDir, path);
+	const rel = relative(resolve(workDir), full);
+	if (rel === "" || rel.split(/[\\/]/)[0] === ".." || isAbsolute(rel)) {
+		throw new Error(`The path "${path}" is not inside the work directory.`);
+	}
+	return full;
+}
+
+// Reads a file of the bot, or a file of the work directory of the task.
+export const readFile: BotTool = async (input, workDir) => {
+	const path = textField("read_file", input, "path");
 	const content = TEST_FILES[path];
-	if (content === undefined) {
+	if (content !== undefined) {
+		return content;
+	}
+	const full = workFile(workDir, path);
+	if (!existsSync(full)) {
 		throw new Error(`No file has the path "${path}". The files are: ${Object.keys(TEST_FILES).join(", ")}.`);
 	}
-	return content;
+	return readFileSync(full, "utf8");
+};
+
+// The input is { path, text }. It adds the text at the end of a file of the work directory.
+export const appendFile: BotTool = async (input, workDir) => {
+	const path = textField("append_file", input, "path");
+	const text = textField("append_file", input, "text");
+	if (Object.hasOwn(TEST_FILES, path)) {
+		throw new Error(`The file "${path}" is a file of the bot. It cannot change.`);
+	}
+	const full = workFile(workDir, path);
+	mkdirSync(dirname(full), { recursive: true });
+	appendFileSync(full, text);
+	return `Added ${text.length} characters to "${path}".`;
 };
 
 const OPERATIONS = {

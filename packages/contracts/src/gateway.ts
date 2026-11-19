@@ -84,6 +84,11 @@ export const inboxMessage = z.object({ sourceRef: id, text: z.string().min(1) })
 
 export type InboxMessage = z.infer<typeof inboxMessage>;
 
+// One file of the draft store, with its body as base64 text.
+export const draftFile = z.object({ path: id, body: z.string() }).strict();
+
+export type DraftFile = z.infer<typeof draftFile>;
+
 // Each call has the call number and the runner id. The pass is in the header "authorization".
 const callBase = { callNo: count, runnerId: id };
 
@@ -121,6 +126,18 @@ export const gatewayCall = z.discriminatedUnion("call", [
 	// The body of the copy is base64 text. A copy is about 150 KB (task 01).
 	z.object({ ...callBase, call: z.literal("journal"), copy: z.string().min(1) }).strict(),
 	z.object({ ...callBase, call: z.literal("result"), result: taskResult }).strict(),
+	// An action tool is one call to `action` (requirement G1). The id of the action is the task id and the tool-call id (G5).
+	z
+		.object({
+			...callBase,
+			call: z.literal("action"),
+			toolCallId: id,
+			tool: id,
+			content: z.record(z.string(), z.unknown()),
+		})
+		.strict(),
+	// A changed file goes to the draft store (requirement G11). The body is base64 text.
+	z.object({ ...callBase, call: z.literal("draft"), path: id, body: z.string() }).strict(),
 ]);
 
 export type GatewayCall = z.infer<typeof gatewayCall>;
@@ -135,6 +152,8 @@ export const startAnswer = z
 		// The newest copy of the journal, as base64 text, or null for a first attempt.
 		journal: z.string().nullable(),
 		signals: z.array(signalDelivery),
+		// The draft files that belong to the journal copy. A new attempt loads them first (G11).
+		drafts: z.array(draftFile),
 	})
 	.strict();
 
@@ -174,3 +193,12 @@ export const gatewayOk = z.object({ ok: z.literal(true) }).strict();
 export const exitReport = z.object({ accountId: id, taskId: id, attemptNo: count, exitCode: z.int() }).strict();
 
 export type ExitReport = z.infer<typeof exitReport>;
+
+// The answer of `action` (section 4.4). "wait" means: park on a signal whose key is the id of the action.
+export const actionAnswer = z.discriminatedUnion("status", [
+	z.object({ status: z.literal("done"), answer: z.unknown() }).strict(),
+	z.object({ status: z.literal("refused"), reason: z.string().min(1) }).strict(),
+	z.object({ status: z.literal("wait") }).strict(),
+]);
+
+export type ActionAnswer = z.infer<typeof actionAnswer>;

@@ -5,8 +5,6 @@ import {
 	type Conversation,
 	createRegistry,
 	defineExtension,
-	defineSignal,
-	defineTool,
 	GenerationTask,
 	Harness,
 	type HarnessSettings,
@@ -19,22 +17,16 @@ import {
 	ToolTask,
 } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import { obj, str, unknown } from "@earendil-works/pi-schema";
-import type { BotDefinition, SignalDelivery, StopName, TaskResult } from "@tensquads/contracts";
+import type { BotDefinition, SignalDelivery, StartAnswer, StopName, TaskResult } from "@tensquads/contracts";
 import type { ModelAnswer, System } from "@tensquads/core";
-
+import { DraftSender, FILES_DIR, writeDrafts } from "./drafts.js";
 import { answerText, type CompleteRequest, GATEWAY_MODEL, gatewayModels } from "./gateway-model.js";
 import { journalCopy, writeJournal } from "./journal.js";
 import { isModelLimit, type Link, RefusedError } from "./link.js";
 import { removeTexts, renderBrief } from "./messages.js";
+import { ANSWER_SIGNAL, actionTool, botTool, QUESTION_TOOL, questionTool, type ToolExecute } from "./tools.js";
 
 const context = BACKGROUND_CONTEXT;
-
-// The tool "ask a question". It parks until the answer arrives as a signal (requirement L6).
-export const QUESTION_TOOL = "ask_question";
-
-// The signal kind of a decision of the owner. The key is the id of the question or of the action.
-export const ANSWER_SIGNAL = defineSignal({ name: "tensquads.answer", version: 1, schema: unknown() });
 
 // The request id of the brief. A second submit of the brief, after a resume, is dropped by pi-durable.
 const BRIEF_REQUEST = "brief";
@@ -43,19 +35,16 @@ const BRIEF_REQUEST = "brief";
 // Each inbox message that is queued goes into the next model request.
 const SETTINGS: HarnessSettings = { retry: { enabled: false }, steeringMode: "all" };
 
-// A tool that runs in the sandbox. It gets the input of the model and returns the text for the model.
-export type ToolExecute = (input: Record<string, unknown>) => Promise<string>;
-
 export interface RunTaskOptions {
 	bot: BotDefinition;
 	taskType: string;
 	taskId: string;
 	attemptNo: number;
-	// The read tools and the compute tools of the bot. Action tools come in task 05.
+	// The read tools and the compute tools of the bot. The loop makes each action tool from the definition (G1).
 	tools: Readonly<Record<string, ToolExecute>>;
 	link: Link;
 	system: System;
-	// The local SQLite journal is in this directory.
+	// The local SQLite journal is in this directory. The files of the tools are in its subdirectory FILES_DIR.
 	workDir: string;
 }
 
@@ -90,32 +79,28 @@ function outputText(output: ToolExecutionResult["output"]): string {
 	return (output ?? []).map((part) => (part.type === "text" ? part.text : `[${part.type}]`)).join("");
 }
 
-function botTool(name: string, execute: ToolExecute): ToolRegistration {
-	return defineTool({
-		name,
-		description: `The tool ${name} of the bot.`,
-		parameters: obj({}, { open: true }),
-		replay: "safe",
-		async execute(args) {
-			return { output: [{ type: "text", text: await execute(args as Record<string, unknown>) }] };
-		},
-	});
+interface ParkedCall {
+	name: string;
+	arguments: Record<string, unknown>;
 }
 
-const questionTool = defineTool({
-	name: QUESTION_TOOL,
-	description: "Ask the owner a question. The answer comes back as the result of this tool.",
-	parameters: obj({ text: str() }),
-	replay: "safe",
-	async execute(_args, api, ctx) {
-		const signal = await api.readSignal(ANSWER_SIGNAL, api.callId, ctx);
-		if (signal !== undefined && "value" in signal) {
-			const text = typeof signal.value === "string" ? signal.value : JSON.stringify(signal.value);
-			return { output: [{ type: "text", text }] };
-		}
-		return { sleep: { signals: [ANSWER_SIGNAL.key(api.callId)] } };
-	},
-});
+function toolCallOf(messages: readonly Message[], id: string): ParkedCall | undefined {
+	for (const message of messages) {
+		if (message.role !== "assistant") continue;
+		const call = message.content.find((part) => part.type === "toolCall" && part.id === id);
+		if (call?.type === "toolCall") return call;
+	}
+	return undefined;
+}
+
+// A parked action tool waits for the owner. A parked question tool asks the owner (section 4.4).
+function parkOf(key: string, call: ParkedCall | undefined): { question: Question } | { waiting: string } {
+	if (call !== undefined && call.name !== QUESTION_TOOL) {
+		return { waiting: key };
+	}
+	const text = typeof call?.arguments.text === "string" ? call.arguments.text : "";
+	return { question: { id: key, text: text === "" ? "(no text)" : text } };
+}
 
 // Counts the moments when pi-durable needs no process. A park makes one of them.
 class IdleEvents {
@@ -137,20 +122,31 @@ class IdleEvents {
 	}
 }
 
-type RunEnd = { settled: SettledSubmissionRecord } | { question: Question };
+// A run ends when pi-durable settles it, or when a tool parks: a question, or an action that waits for the owner.
+type RunEnd = { settled: SettledSubmissionRecord } | { question: Question } | { waiting: string };
 
 class TaskRun {
 	private readonly state: LoopState = { turnNo: 0, forget: new Set(), submitted: new Set() };
 	private readonly idle = new IdleEvents();
 	private readonly file: string;
+	private readonly filesDir: string;
 	private readonly allowed: Set<string>;
+	// The action tools of the definition. The loop makes them. The bot gives no code for them (requirement G1).
+	private readonly actions: string[];
 	private readonly facts = new Map<string, string>();
 	private harness: Harness | undefined;
 	private root: Conversation | undefined;
+	private drafts: DraftSender | undefined;
 
 	constructor(private readonly options: RunTaskOptions) {
 		this.file = join(options.workDir, "journal.sqlite");
+		this.filesDir = join(options.workDir, FILES_DIR);
 		this.allowed = new Set([...options.bot.tools.map((tool) => tool.name), QUESTION_TOOL]);
+		this.actions = options.bot.tools.filter((tool) => tool.kind === "action").map((tool) => tool.name);
+		const coded = this.actions.filter((name) => Object.hasOwn(options.tools, name));
+		if (coded.length > 0) {
+			throw new Error(`The bot gives code for the action tools ${coded.join(", ")}. Only the gate does an action.`);
+		}
 	}
 
 	private get info() {
@@ -164,13 +160,9 @@ class TaskRun {
 		return { harness: this.harness, root: this.root };
 	}
 
-	async run(): Promise<TaskResult> {
-		const { bot, taskType: name, link } = this.options;
-		const taskType = bot.taskTypes.find((type) => type.name === name);
-		if (taskType === undefined) {
-			throw new Error(`The bot "${bot.id}" has no task type "${name}".`);
-		}
-		const start = await link.start();
+	// Reads the answer of start. The journal copy and the drafts go into the work directory before the loop resumes.
+	private async prepare(): Promise<StartAnswer> {
+		const start = await this.options.link.start();
 		for (const fact of start.brief.facts) {
 			this.facts.set(fact.id, fact.text);
 		}
@@ -178,6 +170,19 @@ class TaskRun {
 			this.state.forget.add(id);
 		}
 		writeJournal(this.file, start.journal);
+		// A new attempt loads the files as they were at the journal copy (requirement G11).
+		writeDrafts(this.filesDir, start.drafts);
+		this.drafts = new DraftSender(this.filesDir, this.options.link);
+		return start;
+	}
+
+	async run(): Promise<TaskResult> {
+		const { bot, taskType: name } = this.options;
+		const taskType = bot.taskTypes.find((type) => type.name === name);
+		if (taskType === undefined) {
+			throw new Error(`The bot "${bot.id}" has no task type "${name}".`);
+		}
+		const start = await this.prepare();
 		const harness = await Harness.open(
 			await openNodeSqliteStorage(this.file),
 			{
@@ -222,6 +227,11 @@ class TaskRun {
 			await this.options.link.journal(journalCopy(this.file));
 			return result("question", "", end.question);
 		}
+		if ("waiting" in end) {
+			// The action waits for the owner (section 4.4). The new attempt delivers the decision as a signal.
+			await this.options.link.journal(journalCopy(this.file));
+			return result("waiting", `The action ${end.waiting} waits for the decision of the owner.`);
+		}
 		if (stands !== undefined) {
 			return stands;
 		}
@@ -235,7 +245,7 @@ class TaskRun {
 		);
 	}
 
-	// Waits for the end of the run, or for a park of the tool "ask a question".
+	// Waits for the end of the run, or for a park of the tool "ask a question" or of an action tool.
 	private async waitForEnd(submission: Submission): Promise<RunEnd> {
 		const settled = submission.wait(context).then((record) => ({ settled: record }));
 		let seen = 0;
@@ -245,9 +255,9 @@ class TaskRun {
 				return next;
 			}
 			seen = next.idle;
-			const question = await this.parkedQuestion();
-			if (question !== undefined) {
-				return { question };
+			const parked = await this.parked();
+			if (parked !== undefined) {
+				return parked;
 			}
 		}
 	}
@@ -263,7 +273,7 @@ class TaskRun {
 		);
 	}
 
-	private async parkedQuestion(): Promise<Question | undefined> {
+	private async parked(): Promise<{ question: Question } | { waiting: string } | undefined> {
 		const { harness, root } = this.open();
 		if (harness.wake().active) {
 			return undefined;
@@ -272,12 +282,7 @@ class TaskRun {
 		if (parked === undefined) {
 			return undefined;
 		}
-		const view = await root.context(context);
-		const call = view.messages
-			.flatMap((message) => (message.role === "assistant" ? message.content : []))
-			.find((part) => part.type === "toolCall" && part.id === parked.key);
-		const text = call?.type === "toolCall" && typeof call.arguments.text === "string" ? call.arguments.text : "";
-		return { id: parked.key, text: text === "" ? "(no text)" : text };
+		return parkOf(parked.key, toolCallOf((await root.context(context)).messages, parked.key));
 	}
 
 	// Delivers each decision of the owner to the tool call that sleeps on its key.
@@ -302,7 +307,9 @@ class TaskRun {
 		this.state.turnNo = request.turnNo;
 		let answer: Awaited<ReturnType<Link["model"]>>;
 		try {
-			const tools = [...this.allowed].filter((name) => name === QUESTION_TOOL || name in this.options.tools);
+			const tools = [...this.allowed].filter(
+				(name) => name === QUESTION_TOOL || name in this.options.tools || this.actions.includes(name),
+			);
 			answer = await this.options.link.model({ turnNo: request.turnNo, messages: request.messages, tools });
 		} catch (error) {
 			this.state.fatal ??= error;
@@ -317,7 +324,11 @@ class TaskRun {
 	}
 
 	// A hook keeps an error for the end of the run, because pi-durable reports a throw of a hook and continues.
+	// After an error, a hook sends nothing. Thus no copy of the journal has the result of a call that failed.
 	private async guard(work: () => Promise<void>): Promise<void> {
+		if (this.state.fatal !== undefined) {
+			return;
+		}
 		try {
 			await work();
 		} catch (error) {
@@ -407,6 +418,8 @@ class TaskRun {
 					await this.guard(async () => {
 						const summary = outputText(toolResult.output).slice(0, 500);
 						await link.step({ turnNo: this.state.turnNo, toolCallId: call.id, tool: call.name, summary });
+						// Each file that the tool changed goes to the draft store (requirement G11).
+						await this.drafts?.sendChanged();
 						await system.emit("tool/after", { taskId, toolCallId: call.id, tool: call.name });
 					});
 					return undefined;
@@ -416,8 +429,16 @@ class TaskRun {
 	}
 
 	private registry() {
+		const actionDeps = {
+			link: this.options.link,
+			saveCopy: () => this.options.link.journal(journalCopy(this.file)),
+			fail: (error: unknown) => {
+				this.state.fatal ??= error;
+			},
+		};
 		const tools: ToolRegistration[] = [
-			...Object.entries(this.options.tools).map(([name, execute]) => botTool(name, execute)),
+			...Object.entries(this.options.tools).map(([name, execute]) => botTool(name, execute, this.filesDir)),
+			...this.actions.map((name) => actionTool(name, actionDeps)),
 			questionTool,
 		];
 		const registry = createRegistry();
@@ -429,6 +450,6 @@ class TaskRun {
 
 // Runs one attempt of a task. It returns the result with its stop name (requirement L2).
 // It throws RefusedError when the gateway refuses a call. Then the runner exits.
-export function runTask(options: RunTaskOptions): Promise<TaskResult> {
+export async function runTask(options: RunTaskOptions): Promise<TaskResult> {
 	return new TaskRun(options).run();
 }

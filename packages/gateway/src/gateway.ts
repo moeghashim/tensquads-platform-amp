@@ -3,9 +3,11 @@
 // The Durable Object class gives the storage, the task writer, the object store and the model. No Cloudflare import.
 import { testBot } from "@tensquads/bots";
 import {
+	type ActionAnswer,
 	type AttemptVersions,
 	type BotDefinition,
 	type Brief,
+	type DraftFile,
 	type GatewayCall,
 	type InboxAnswer,
 	type InboxMessage,
@@ -26,7 +28,7 @@ export interface GatewayTasks {
 	bindRunner(bind: { taskId: string; attemptNo: number; runnerId: string; at: string }): Promise<string>;
 	recordVersions(taskId: string, attemptNo: number, versions: Partial<AttemptVersions>): Promise<void>;
 	setTaskStatus(change: { taskId: string; status: "running" | "done"; stop?: StopName; at: string }): Promise<void>;
-	newestJournalCopy(taskId: string): Promise<{ blobKey: string } | undefined>;
+	newestJournalCopy(taskId: string): Promise<{ attemptNo: number; callNo: number; blobKey: string } | undefined>;
 	addJournalCopy(copy: {
 		taskId: string;
 		attemptNo: number;
@@ -52,6 +54,37 @@ export interface GatewayTasks {
 	signals(taskId: string): Promise<SignalDelivery[]>;
 }
 
+// The gate (packages/gate). The gateway gives it each "action" call. This package does not import the gate (C2).
+export interface GatewayGate {
+	action(request: {
+		taskId: string;
+		attemptNo: number;
+		bot: string;
+		toolCallId: string;
+		tool: string;
+		content: Record<string, unknown>;
+	}): Promise<ActionAnswer | { busy: true }>;
+}
+
+// The part of the action writer of Petra that the gateway uses: the approval signals and the draft store.
+export interface GatewayActions {
+	// Each decided approval, with the tool-call id as its key (section 4.4).
+	approvalSignals(taskId: string): Promise<SignalDelivery[]>;
+	addDraftFile(draft: {
+		taskId: string;
+		path: string;
+		attemptNo: number;
+		callNo: number;
+		blobKey: string;
+		at: string;
+	}): Promise<void>;
+	// For each path, the newest file that is not newer than the copy.
+	draftFiles(
+		taskId: string,
+		copy: { attemptNo: number; callNo: number },
+	): Promise<{ path: string; blobKey: string }[]>;
+}
+
 // The storage of the Durable Object. The keys of the gateway start with "petra_gw/" (section 7.3).
 export interface GatewayStorage {
 	get<T>(key: string): Promise<T | undefined>;
@@ -65,6 +98,8 @@ export interface GatewayDeps {
 	// The account of this Petra. A pass of another account is refused.
 	accountId: string;
 	tasks: GatewayTasks;
+	actions: GatewayActions;
+	gate: GatewayGate;
 	objectStore: Pick<ObjectStore, "put" | "get">;
 	model: Model;
 	check: ResultChecker;
@@ -86,9 +121,13 @@ export type GatewayAnswer =
 	| { limit: "max_turns" | "max_budget" }
 	| InboxAnswer
 	| ResultAnswer
+	| ActionAnswer
 	| { ok: true }
 	| GatewayRefusal
 	| { busy: true };
+
+// A refusal and "busy" are not saved. The runner exits after a refusal, and tries again after "busy".
+const isSaved = (answer: GatewayAnswer) => !("refused" in answer) && !("busy" in answer);
 
 export interface Gateway {
 	// The claims come from a pass that the Worker verified. The call is parsed with the schema gatewayCall.
@@ -98,7 +137,9 @@ export interface Gateway {
 // The bot definitions come from the same package as the runner reads (requirement L13).
 const BOTS: readonly BotDefinition[] = [testBot];
 
-const OPEN_STATUSES = new Set(["starting", "running"]);
+// A task that waits for the owner still takes the calls of its current attempt: after the answer "wait",
+// the runner saves the journal and gives its result (section 4.4).
+const OPEN_STATUSES = new Set(["starting", "running", "waiting for the owner"]);
 const OK = { ok: true } as const;
 
 type OpenTask = { bot: string; taskType: string; brief: Brief };
@@ -157,14 +198,43 @@ export function gateway(deps: GatewayDeps): Gateway {
 		await tasks.setTaskStatus({ taskId, status: "running", at });
 		const { forget } = await tasks.inbox(taskId);
 		const copy = await tasks.newestJournalCopy(taskId);
-		let journal: string | null = null;
-		if (copy) {
-			const body = await deps.objectStore.get(copy.blobKey);
-			if (body === undefined) throw new Error(`The journal copy "${copy.blobKey}" is not in the object store.`);
-			journal = body;
-		}
-		const signals = await tasks.signals(taskId);
-		return startAnswer.parse({ brief: task.brief, taskType: task.taskType, forget, journal, signals });
+		const journal = copy ? await stored(copy.blobKey) : null;
+		// A first attempt has no copy, so it has no draft files (requirement G11).
+		const drafts = copy ? await draftsOf(taskId, copy) : [];
+		const signals = await signalsOf(taskId);
+		return startAnswer.parse({ brief: task.brief, taskType: task.taskType, forget, journal, signals, drafts });
+	}
+
+	async function stored(blobKey: string): Promise<string> {
+		const body = await deps.objectStore.get(blobKey);
+		if (body === undefined) throw new Error(`The object "${blobKey}" is not in the object store.`);
+		return body;
+	}
+
+	async function draftsOf(taskId: string, copy: { attemptNo: number; callNo: number }): Promise<DraftFile[]> {
+		const files = await deps.actions.draftFiles(taskId, copy);
+		return Promise.all(files.map(async (file) => ({ path: file.path, body: await stored(file.blobKey) })));
+	}
+
+	// The answers of the owner to questions, and the decisions of the owner on approvals (section 4.4).
+	async function signalsOf(taskId: string): Promise<SignalDelivery[]> {
+		return [...(await tasks.signals(taskId)), ...(await deps.actions.approvalSignals(taskId))];
+	}
+
+	// A changed file goes to the draft store, with the attempt and the call number of the save (requirement G11).
+	async function draft(claims: PassClaims, call: Extract<GatewayCall, { call: "draft" }>) {
+		const { taskId, attemptNo } = claims;
+		const blobKey = `draft/${taskId}/${attemptNo}/${call.callNo}/${call.path}`;
+		await deps.objectStore.put(blobKey, call.body);
+		await deps.actions.addDraftFile({
+			taskId,
+			path: call.path,
+			attemptNo,
+			callNo: call.callNo,
+			blobKey,
+			at: deps.now(),
+		});
+		return OK;
 	}
 
 	async function model(task: OpenTask, claims: PassClaims, call: Extract<GatewayCall, { call: "model" }>) {
@@ -233,7 +303,7 @@ export function gateway(deps: GatewayDeps): Gateway {
 				return OK;
 			case "inbox": {
 				const { messages, forget } = await tasks.inbox(taskId);
-				return { messages, forget, signals: await tasks.signals(taskId) };
+				return { messages, forget, signals: await signalsOf(taskId) };
 			}
 			case "journal": {
 				const blobKey = `journal/${taskId}/${attemptNo}/${call.callNo}`;
@@ -243,6 +313,12 @@ export function gateway(deps: GatewayDeps): Gateway {
 			}
 			case "result":
 				return result(task, claims, call);
+			case "action": {
+				const { toolCallId, tool, content } = call;
+				return deps.gate.action({ taskId, attemptNo, bot: task.bot, toolCallId, tool, content });
+			}
+			case "draft":
+				return draft(claims, call);
 		}
 	}
 
@@ -258,8 +334,7 @@ export function gateway(deps: GatewayDeps): Gateway {
 				const saved = await deps.storage.get<GatewayAnswer>(key);
 				if (saved !== undefined) return saved;
 				const answer = await work(admitted, claims, call);
-				// A refusal is not saved. The runner exits after it.
-				if (!("refused" in answer)) await deps.storage.put(key, answer);
+				if (isSaved(answer)) await deps.storage.put(key, answer);
 				return answer;
 			} finally {
 				inProgress.delete(key);

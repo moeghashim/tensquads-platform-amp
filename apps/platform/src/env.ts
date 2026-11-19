@@ -24,6 +24,10 @@ export interface Env {
 	ATTEMPT_MAX_MS?: string;
 	SILENT_MS?: string;
 	LAUNCHER_TAKE_WAIT_MS?: string;
+	// The time limit of a tool (section 10). The "check action" job waits this long.
+	TOOL_LIMIT_MS?: string;
+	// For the tests of the full path: each send of the payment test adapter waits this long. The default is 0.
+	PAYMENT_HOLD_MS?: string;
 }
 
 export interface Settings {
@@ -33,6 +37,8 @@ export interface Settings {
 	attemptMaxMs: number;
 	silentMs: number;
 	takeWaitMs: number;
+	toolLimitMs: number;
+	paymentHoldMs: number;
 }
 
 // A setting that is missing or not valid. The message names the setting, never its value (section 10).
@@ -46,7 +52,8 @@ type SettingName =
 	| "WORKER_COMMIT"
 	| "ATTEMPT_MAX_MS"
 	| "SILENT_MS"
-	| "LAUNCHER_TAKE_WAIT_MS";
+	| "LAUNCHER_TAKE_WAIT_MS"
+	| "TOOL_LIMIT_MS";
 
 function text(env: Env, name: SettingName): string {
 	const value = env[name];
@@ -71,7 +78,18 @@ export function readSettings(env: Env): Settings {
 		attemptMaxMs: milliseconds(env, "ATTEMPT_MAX_MS"),
 		silentMs: milliseconds(env, "SILENT_MS"),
 		takeWaitMs: milliseconds(env, "LAUNCHER_TAKE_WAIT_MS"),
+		toolLimitMs: milliseconds(env, "TOOL_LIMIT_MS"),
+		paymentHoldMs: holdMilliseconds(env.PAYMENT_HOLD_MS),
 	};
+}
+
+// A setting that can be missing. Its value is 0 or a positive whole number of milliseconds.
+function holdMilliseconds(value: string | undefined): number {
+	const ms = Number(value ?? "0");
+	if (!Number.isInteger(ms) || ms < 0) {
+		throw new SettingError("The setting PAYMENT_HOLD_MS is not a whole number of milliseconds.");
+	}
+	return ms;
 }
 
 // Petra gets only her own connection. The Platform object gets its two connections.

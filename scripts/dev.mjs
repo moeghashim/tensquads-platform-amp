@@ -44,6 +44,8 @@ const env = {
 	// The key that signs a pass, and the key of the launcher. The local values are not secret.
 	PASS_KEY: process.env.PASS_KEY ?? "local-pass-key",
 	LAUNCHER_KEY: process.env.LAUNCHER_KEY ?? "local-launcher-key",
+	// The launcher takes the sandbox requests from the local Worker.
+	WORKER_URL: process.env.WORKER_URL ?? "http://localhost:8787",
 };
 
 run("npm", ["run", "db:setup"], env);

@@ -24,9 +24,19 @@ export interface SeenCall {
 	answer: string;
 }
 
+export interface ProxiedCall {
+	call: string;
+	callNo: number;
+	pass: string;
+}
+
 // A rule decides what the proxy does with a call before it goes to the Worker.
-// "kill" kills the runner of the pass and never answers. A promise holds the call until it resolves.
-export type ProxyRule = (call: { call: string; callNo: number; pass: string }) => "kill" | Promise<void> | undefined;
+// "kill" kills the runner of the pass and never answers. "drop" answers ok and does not give the call to the
+// Worker, as a copy of the journal that was lost. A promise holds the call until it resolves.
+export type ProxyRule = (call: ProxiedCall) => "kill" | "drop" | Promise<void> | undefined;
+
+// A rule on the answer of the Worker. "kill" kills the runner before the answer reaches it.
+export type AnswerRule = (call: ProxiedCall, answer: string) => "kill" | undefined;
 
 function freePort(): Promise<number> {
 	return new Promise((resolve) => {
@@ -69,6 +79,9 @@ async function waitFor<T>(what: string, check: () => Promise<T | undefined>, ms 
 export class FullPath {
 	readonly calls: SeenCall[] = [];
 	rule: ProxyRule = () => undefined;
+	answerRule: AnswerRule = () => undefined;
+	// The log of the Worker. The test adapters of the payment and the channel write each send to it.
+	workerLog = "";
 	readonly killed: string[] = [];
 	private worker?: ChildProcess;
 	private launcher?: ChildProcess;
@@ -78,6 +91,9 @@ export class FullPath {
 	private readonly dir = mkdtempSync(join(tmpdir(), "tensquads-e2e-"));
 	private readonly pidFile = join(this.dir, "runners");
 	readonly db = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+
+	// The vars are settings of the Worker for these tests, for example a short silent time.
+	constructor(private readonly vars: Record<string, string> = {}) {}
 
 	async start(): Promise<void> {
 		const databaseUrl = process.env.DATABASE_URL;
@@ -115,11 +131,16 @@ export class FullPath {
 				"--persist-to",
 				join(this.dir, "state"),
 				"--var",
-				"SILENT_MS:30000",
+				...Object.entries({ SILENT_MS: "30000", ...this.vars }).map(([name, value]) => `${name}:${value}`),
 				"--show-interactive-dev-session=false",
 			],
-			{ cwd: join(ROOT, "apps", "platform"), stdio: ["ignore", "ignore", "pipe"], detached: true },
+			{ cwd: join(ROOT, "apps", "platform"), stdio: ["ignore", "pipe", "pipe"], detached: true },
 		);
+		for (const stream of [this.worker.stdout, this.worker.stderr]) {
+			stream?.on("data", (chunk: Buffer) => {
+				this.workerLog += chunk.toString();
+			});
+		}
 		await this.startProxy();
 		await waitFor("the Worker starts", async () => {
 			try {
@@ -151,27 +172,41 @@ export class FullPath {
 		const pass = request.headers.authorization?.replace(/^Bearer /, "") ?? "";
 		const gatewayCall =
 			request.url === "/v1/gateway" ? (JSON.parse(body) as { call: string; callNo: number }) : undefined;
-		if (gatewayCall && !(await this.applyRule({ ...gatewayCall, pass }))) return;
-		const answer = await this.forward(request, body);
+		const rule = gatewayCall ? await this.applyRule({ ...gatewayCall, pass }) : "forward";
+		if (rule === "killed") return;
+		const answer =
+			rule === "drop" ? { status: 200, answer: JSON.stringify({ ok: true }) } : await this.forward(request, body);
 		if (!answer) {
 			// The Worker stops at the end of the tests.
 			response.writeHead(502).end();
 			return;
 		}
-		if (gatewayCall) this.calls.push({ ...gatewayCall, pass, ...answer });
+		if (gatewayCall) {
+			this.calls.push({ ...gatewayCall, pass, ...answer });
+			if (this.answerRule({ ...gatewayCall, pass }, answer.answer) === "kill") {
+				this.kill(pass);
+				return;
+			}
+		}
 		response.writeHead(answer.status, { "content-type": "application/json" });
 		response.end(answer.answer);
 	}
 
-	// Returns false when the rule killed the runner. The call then gets no answer.
-	private async applyRule(call: { call: string; callNo: number; pass: string }): Promise<boolean> {
+	// "killed" when the rule killed the runner. The call then gets no answer.
+	private async applyRule(call: ProxiedCall): Promise<"killed" | "drop" | "forward"> {
 		const action = this.rule(call);
 		if (action === "kill") {
 			this.kill(call.pass);
-			return false;
+			return "killed";
 		}
+		if (action === "drop") return "drop";
 		await action;
-		return true;
+		return "forward";
+	}
+
+	// The number of sends of the payment adapter for one action id.
+	payments(actionId: string): number {
+		return this.workerLog.split("\n").filter((line) => line.includes(`payment-test: send ${actionId}`)).length;
 	}
 
 	private async forward(

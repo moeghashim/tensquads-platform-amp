@@ -18,7 +18,11 @@ export interface PetraBindings {
 	bucket: BucketBinding;
 	jobs: QueueBinding;
 	platform: PlatformBinding;
+	// Each payment of the test adapter waits this long (the setting PAYMENT_HOLD_MS). The default is 0.
+	paymentHoldMs?: number;
 }
+
+const waitFor = (ms: number) => () => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 // The checker double of task 04 always says "stands" (task 06 replaces it).
 const stands = () => ({ pass: true, reason: "The checker double of task 04 always says stands." });
@@ -33,7 +37,8 @@ export function petraPlugins(database: SqlConnections, bindings: PetraBindings):
 		platformSandbox(bindings.platform),
 		fixedDecider(),
 		testIdentity(),
-		testChannel(),
-		testPayment(),
+		// The test adapters write each send to the log of the Worker. The tests of the full path count these lines.
+		testChannel({ log: console.log }),
+		testPayment({ log: console.log, ...(bindings.paymentHoldMs ? { hold: waitFor(bindings.paymentHoldMs) } : {}) }),
 	];
 }

@@ -3,32 +3,19 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
-import { testBot } from "@tensquads/bots";
 import { taskResult } from "@tensquads/contracts";
 import { type Model, type Plugin, type PortKey, ports, type System, startSystem } from "@tensquads/core";
 
 import { journalCopy } from "../src/journal.js";
 import { type ModelCall, RefusedError } from "../src/link.js";
-import { QUESTION_TOOL, type RunTaskOptions, runTask, type ToolExecute } from "../src/run-task.js";
-import { FakeLink, type Script, text, toolCall, toolMessages, workDir } from "./fake-link.js";
+import { runTask } from "../src/run-task.js";
+import { QUESTION_TOOL, type ToolExecute } from "../src/tools.js";
+import { FakeLink, taskOptions as options, type Script, text, toolCall, toolMessages, workDir } from "./fake-link.js";
 
 const TIMEOUT = { timeout: 30_000 };
 
 async function emptySystem(): Promise<System> {
 	return startSystem([]);
-}
-
-function options(link: FakeLink, dir: string, system: System, tools: RunTaskOptions["tools"] = {}): RunTaskOptions {
-	return {
-		bot: testBot,
-		taskType: "answer-question",
-		taskId: "task-1",
-		attemptNo: 1,
-		tools: { read_file: async (input) => `content of ${String(input.path)}`, ...tools },
-		link,
-		system,
-		workDir: dir,
-	};
 }
 
 function userTexts(call: ModelCall): string[] {
@@ -182,7 +169,9 @@ test("L6: ask_question parks, and the answer comes back as the result of the sam
 });
 
 test("L8: one changed row replaces the model and one tool, with no change to the loop", TIMEOUT, async (t) => {
-	const calculator: PortKey<{ execute: ToolExecute }> = { name: "tool calculate" };
+	const calculator: PortKey<{ execute: (input: Record<string, unknown>) => Promise<string> }> = {
+		name: "tool calculate",
+	};
 	const modelRow = (answer: string): Plugin => ({
 		name: "model",
 		provides: [ports.model],
@@ -232,7 +221,8 @@ test("L10: each model call goes through link.model", TIMEOUT, async (t) => {
 		link.models.map((call) => call.turnNo),
 		[1, 2, 3],
 	);
-	assert.deepEqual(link.models[0]?.tools.sort(), [QUESTION_TOOL, "read_file"].sort());
+	// The model gets the tools that the runner has code for, the question tool and the action tools.
+	assert.deepEqual(link.models[0]?.tools.sort(), [QUESTION_TOOL, "read_file", "refund", "send_reply"].sort());
 });
 
 test("tool/before refuses a tool that is not in the bot definition", TIMEOUT, async (t) => {
