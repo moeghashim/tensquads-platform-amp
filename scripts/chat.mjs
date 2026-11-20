@@ -62,8 +62,18 @@ function show(message) {
 	console.log(`petra> ${(lines[message.type] ?? (() => JSON.stringify(message)))()}`);
 }
 
+// After each command, the chat shows at once that Petra works on it. The next message of Petra ends the wait.
+let thinking = false;
+const ARABIC = /\p{Script=Arabic}/u;
+
+function showThinking(text) {
+	thinking = true;
+	console.log(ARABIC.test(text) ? "petra> بترا تفكر…" : "petra> Petra is thinking…");
+}
+
 async function poll() {
 	const { messages } = await call(`/v1/messages?after=${lastSeq}`);
+	if (messages.length > 0) thinking = false;
 	for (const message of messages) {
 		lastSeq = message.seq;
 		seen.push(message);
@@ -106,7 +116,11 @@ input.prompt();
 input.on("line", async (raw) => {
 	const line = raw.trim();
 	if (line === "/quit") return input.close();
-	if (line !== "") await Promise.resolve(send(line)).catch((error) => console.error(`chat: ${error.message}`));
+	if (line !== "") {
+		const sent = await Promise.resolve(send(line)).catch((error) => console.error(`chat: ${error.message}`));
+		// Only an accepted command gets the line. A /approve with no approval request returns nothing.
+		if (sent?.status === "accepted" && !thinking) showThinking(line);
+	}
 	input.prompt();
 });
 input.on("close", () => {

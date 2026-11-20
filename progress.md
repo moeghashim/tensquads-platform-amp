@@ -951,3 +951,11 @@ Append-only learning log for commits and deploys. Add new entries only at the en
 - Changed Paths:
   - packages/core/src/lib/sql-database.ts
   - packages/adapters-postgres/test/database.test.ts
+## 2026-11-20T08:07:42.706Z
+- Trigger: commit
+- Learning: On staging a reply takes about 11 s, and the model is only 2 to 3.5 s of it. The chat now shows a thinking line at once; the platform time is the next fix.
+- Context: feat(chat): show at once that Petra is thinking
+- Branch: chat-thinking-line
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - scripts/chat.mjs
