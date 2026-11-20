@@ -8,7 +8,7 @@ import type { Model, ModelAnswer, ModelMessage, ModelToolCall, ModelToolDefiniti
 import { petraInstructions } from "./instructions.js";
 import { answerLanguage, type Language, languageInstruction } from "./language.js";
 import { type CommandCosts, type ConversationInput, conversationInput } from "./petra.js";
-import { MODEL_TEXT_TOOLS, PETRA_TOOLS, TASK_BOTS } from "./petra-tools.js";
+import { isTaskBot, MODEL_TEXT_TOOLS, PETRA_TOOLS, TASK_BOTS } from "./petra-tools.js";
 
 export interface PetraCompletionDeps {
 	// The model port of Petra, with its time limit and its second try (limitedModel).
@@ -77,6 +77,12 @@ export function limitedModel(model: Model, options: { timeoutMs: number; log: (l
 // the owner message.
 function toolInput(call: ModelToolCall, input: ConversationInput, language: Language): Record<string, unknown> {
 	const { commandId, channel } = input;
+	if (call.name === PETRA_TOOLS.startTask) {
+		// The model can name a bot of the squad. Each other field comes from the command (requirement N5).
+		const { bot } = (call.input ?? {}) as { bot?: unknown };
+		const known = typeof bot === "string" && isTaskBot(bot);
+		return { commandId, channel, text: input.text, ...(known ? { bot } : {}) };
+	}
 	if (!MODEL_TEXT_TOOLS.has(call.name)) return { commandId, channel, text: input.text };
 	const given = (call.input ?? {}) as { text?: unknown };
 	const own = typeof given.text === "string" && given.text.trim() !== "";

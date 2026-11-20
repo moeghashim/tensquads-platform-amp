@@ -55,12 +55,30 @@ export interface DecisionsDeps {
 	costs?: DecisionCosts;
 }
 
+// The answers that the model of Petra already gave in its tool call, for example the bot of start_task.
+// They are recorded under the name of the decider, with the probability 1. The decider is not called.
+export interface GivenAnswers {
+	decider: string;
+	answers: Partial<Record<PointId, string>>;
+}
+
 export interface Decisions {
-	// One call to the decider for all the asks that have no record (requirement Q2).
-	ask(asks: readonly DecisionAsk[]): Promise<Verdict[]>;
+	// One call to the decider for all the asks that have no record (requirement Q2). With given answers, no call.
+	ask(asks: readonly DecisionAsk[], given?: GivenAnswers): Promise<Verdict[]>;
 }
 
 const TIMEOUT = Symbol("timeout");
+
+// A decider that answers from the given answers. An answer that is missing is empty, so it is not valid.
+const givenDecider = ({ decider, answers }: GivenAnswers): Decider => ({
+	name: decider,
+	ask: async (questions) =>
+		questions.map((question) => ({
+			id: question.id,
+			answer: answers[question.point as PointId] ?? "",
+			probability: 1,
+		})),
+});
 
 function optionsOf(ask: DecisionAsk): readonly string[] {
 	const point = pointOf(ask.point);
@@ -195,11 +213,11 @@ export function decisions(deps: DecisionsDeps): Decisions {
 	}
 
 	return {
-		async ask(asks) {
+		async ask(asks, given) {
 			// Each choice point has its options before a call starts.
 			for (const ask of asks) optionsOf(ask);
 			const [verdicts] = await Promise.all([
-				askAndRecord(decider, asks, false),
+				askAndRecord(given ? givenDecider(given) : decider, asks, false),
 				shadow ? askAndRecord(shadow, asks, true) : Promise.resolve([]),
 			]);
 			return verdicts;

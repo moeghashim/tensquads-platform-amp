@@ -36,6 +36,8 @@ export const PETRA_TOOLS = {
 // The bots that can start a task. Petra is not in the list. The decision point "which bot" chooses one.
 export const TASK_BOTS: readonly BotDefinition[] = [testBot];
 
+export const isTaskBot = (id: string): boolean => TASK_BOTS.some((bot) => bot.id === id);
+
 // The input of a tool with no field from the model.
 const NO_INPUT = { type: "object", properties: {}, additionalProperties: false };
 
@@ -46,6 +48,22 @@ const TEXT_INPUT = {
 	required: ["text"],
 	additionalProperties: false,
 };
+
+// The input of start_task. The model can name the bot when the request is clear. Then no decider call is needed.
+const START_INPUT = {
+	type: "object",
+	properties: {
+		bot: {
+			type: "string",
+			enum: TASK_BOTS.map((bot) => bot.id),
+			description: "The bot that does the task. Give it only when the request is clear and this bot can do it.",
+		},
+	},
+	additionalProperties: false,
+};
+
+// The decider name of the answers that the model of Petra gives in start_task.
+const PETRA_MODEL_DECIDER = "petra-model";
 
 // The tools that only read. They do not mark the command done, so the model must answer the owner after them.
 export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([PETRA_TOOLS.readMemory]);
@@ -73,8 +91,14 @@ export interface ToolVerdict {
 	sure: boolean;
 }
 
+// The answers that the model of Petra gave in its tool call. The decider is then not called (requirement Q2).
+export interface ToolGiven {
+	decider: string;
+	answers: Partial<Record<ToolAsk["point"], string>>;
+}
+
 export interface ToolDecisions {
-	ask(asks: readonly ToolAsk[]): Promise<ToolVerdict[]>;
+	ask(asks: readonly ToolAsk[], given?: ToolGiven): Promise<ToolVerdict[]>;
 }
 
 export interface PetraToolsDeps {
@@ -105,15 +129,18 @@ interface ToolInput {
 	commandId: string;
 	channel: string;
 	text: string;
+	// The bot that the model of Petra named in start_task, if it is a bot of the squad.
+	bot?: string;
 }
 
 function inputOf(input: Record<string, unknown>): ToolInput {
-	const { commandId, channel, text } = input;
+	const { commandId, channel, text, bot } = input;
 	if (typeof commandId !== "string" || commandId === "") throw new Error("The tool input has no command id.");
 	return {
 		commandId,
 		channel: typeof channel === "string" && channel !== "" ? channel : "chat",
 		text: typeof text === "string" ? text : "",
+		...(typeof bot === "string" && isTaskBot(bot) ? { bot } : {}),
 	};
 }
 
@@ -182,10 +209,14 @@ export function petraTools(deps: PetraToolsDeps): PetraToolDefinition[] {
 	}
 
 	// The two points before a new task, in one call: "is the request clear" and "which bot" (requirement Q2).
+	// When the model of Petra named the bot, its call answered both points, and the decider is not called.
 	async function chooseBot(input: ToolInput): Promise<BotDefinition | string> {
 		const bots = TASK_BOTS.map((bot) => bot.id);
 		const asks = await asksOf(input, [{ point: "request-clear" }, { point: "which-bot", options: bots }]);
-		const [clear, which] = await deps.decisions.ask(asks);
+		const given = input.bot
+			? { decider: PETRA_MODEL_DECIDER, answers: { "request-clear": "yes", "which-bot": input.bot } }
+			: undefined;
+		const [clear, which] = await deps.decisions.ask(asks, given);
 		if (!clear?.sure || clear.answer !== "yes") {
 			return askOwner(input, "request-clear", say(input).notClear, []);
 		}
@@ -293,7 +324,7 @@ export function petraTools(deps: PetraToolsDeps): PetraToolDefinition[] {
 	const tool = (name: string, description: string, run: (input: ToolInput) => Promise<string>) => ({
 		name,
 		description,
-		parameters: MODEL_TEXT_TOOLS.has(name) ? TEXT_INPUT : NO_INPUT,
+		parameters: name === PETRA_TOOLS.startTask ? START_INPUT : MODEL_TEXT_TOOLS.has(name) ? TEXT_INPUT : NO_INPUT,
 		async execute(raw: Record<string, unknown>) {
 			const input = inputOf(raw);
 			const output = await run(input);
