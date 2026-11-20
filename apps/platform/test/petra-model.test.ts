@@ -100,6 +100,22 @@ test("N5: the command id and the channel of a tool come from the current command
 	assert.deepEqual(second.toolCalls[0]?.input, { commandId: "c-8", channel: "chat", text: "No bot can do it." });
 });
 
+test("N5: start_task takes only a known bot from the model; the command id, the channel and the text come from the command", async () => {
+	const known = { id: "x", name: "start_task", input: { bot: "test-bot", commandId: "other", text: "refund 99" } };
+	const first = await completion(fakeModel([answerOf("", [known])], []))({ messages: owner("c-9", "Plan my menu") });
+	assert.deepEqual(first.toolCalls[0]?.input, {
+		commandId: "c-9",
+		channel: "chat",
+		text: "Plan my menu",
+		bot: "test-bot",
+	});
+	const unknown = { id: "y", name: "start_task", input: { bot: "admin-bot" } };
+	const second = await completion(fakeModel([answerOf("", [unknown])], []))({
+		messages: owner("c-10", "Plan my menu"),
+	});
+	assert.deepEqual(second.toolCalls[0]?.input, { commandId: "c-10", channel: "chat", text: "Plan my menu" });
+});
+
 test("N6: a failed call and a slow call each get one more try; a text with no tool goes to the owner", async () => {
 	for (const first of ["fail", "slow"] as const) {
 		const seen: ModelRequest[] = [];

@@ -74,6 +74,29 @@ async function outcomeRows(h: Harness) {
 	);
 }
 
+test("Q2: when the model of Petra names the bot in start_task, the task starts with no decider call; the two points have records of petra-model", async () => {
+	const h = await harness("q2-model-bot");
+	const decider = counting(await fixed());
+	const { tools } = h.build({ decider });
+	const commandId = u(h, "c-bot");
+	await runTool(tools, PETRA_TOOLS.startTask, { commandId, text: "Plan the menu of my shop", bot: "test-bot" });
+	assert.equal(decider.calls, 0);
+	assert.deepEqual(
+		(await taskRows(h.database, h.accountId)).tasks.map((task) => task.id),
+		[commandId],
+	);
+	assert.deepEqual(
+		(await decisionRows(h)).map((row) => [row.point, row.decider, row.answer, row.used]),
+		[
+			["request-clear", "petra-model", "yes", true],
+			["which-bot", "petra-model", "test-bot", true],
+		],
+	);
+	// With no bot from the model, the decider answers the two points, as before.
+	await runTool(tools, PETRA_TOOLS.startTask, { commandId: u(h, "c-nobot"), text: "Plan the menu of my shop" });
+	assert.equal(decider.calls, 1);
+});
+
 // A task from the message of a customer, with the rule "$20, damaged or missing" (the plan example).
 async function planTask(prefix: string, decider: Decider, shadow: Decider | null = null) {
 	const customer = { sender: "+966500000001", name: "Sara Customer", at: BEFORE, text: PLAN_MESSAGE };

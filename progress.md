@@ -959,3 +959,18 @@ Append-only learning log for commits and deploys. Add new entries only at the en
 - Actor: Moe Ghashim <moe@10claws.com>
 - Changed Paths:
   - scripts/chat.mjs
+## 2026-11-20T08:58:23.227Z
+- Trigger: commit
+- Learning: A task start asked the decider two points after the model of Petra had already chosen start_task, about 8 s more. The model now names the bot in start_task. The decisions package records the two answers as the decider petra-model with probability 1, so each point keeps its record and the code still checks the answer against the options.
+- Context: perf(petra): skip the decider call when Petra's model names the bot
+- Branch: speed-skip-decider
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - packages/decisions/src/decisions.ts
+  - packages/decisions/test/decisions.test.ts
+  - packages/petra/src/petra-tools.ts
+  - packages/petra/src/petra-model.ts
+  - packages/petra/src/instructions.ts
+  - apps/platform/test/decisions.test.ts
+  - apps/platform/test/petra-model.test.ts
+  - docs/ARCHITECTURE.md
