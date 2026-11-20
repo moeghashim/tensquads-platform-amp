@@ -14,7 +14,7 @@
 		"@tensquads/core": "0.0.2"
 	},
 	"devDependencies": {
-		"@types/pg": "8.15.6"
+		"@types/pg": "8.23.1"
 	},
 	"scripts": {
 		"test": "tsx --test \"test/**/*.test.ts\""
