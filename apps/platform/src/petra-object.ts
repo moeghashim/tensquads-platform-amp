@@ -173,7 +173,16 @@ export class PetraObject extends DurableObject<Env> {
 					? { versions: { petraProvider: petraModel.id.provider, petraModel: petraModel.id.model } }
 					: {}),
 			});
-			const tools = petraTools({ writer, decisions: decide, tasks, work, outbox: out, now, memory });
+			const tools = petraTools({
+				writer,
+				decisions: decide,
+				tasks,
+				work,
+				outbox: out,
+				now,
+				memory,
+				accountLanguage: profile.language,
+			});
 			const loop = await openPetraLoop({
 				storage,
 				tools,

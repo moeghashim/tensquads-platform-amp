@@ -6,7 +6,7 @@ import test from "node:test";
 import { piModel } from "@tensquads/adapters-model";
 import type { Model, ModelAnswer, ModelMessage, ModelRequest } from "@tensquads/core";
 import { ports, startSystem } from "@tensquads/core";
-import { conversationText, limitedModel, MODEL_FAILED_TEXT, petraCompletion } from "@tensquads/petra";
+import { conversationText, limitedModel, MODEL_FAILED_TEXT, PETRA_TOOLS, petraCompletion } from "@tensquads/petra";
 
 import { harness, runTool } from "./task-harness.js";
 
@@ -327,4 +327,17 @@ test("N6 and N4: a failed cost write does not cause a second paid model call", a
 		/The database did not answer/,
 	);
 	assert.equal(seen.length, 1);
+});
+
+test("N9: the fixed texts of the tools are in Arabic for an Arabic message, and in English for an English message", async () => {
+	const h = await harness("n9-fixed");
+	const { tools } = h.build();
+	const u = (id: string) => `${h.accountId}-${id}`;
+	await runTool(tools, PETRA_TOOLS.taskStatus, { commandId: u("s-ar"), text: "ما حالة مهمتي؟" });
+	await runTool(tools, PETRA_TOOLS.taskStatus, { commandId: u("s-en"), text: "What is the status of my task?" });
+	await runTool(tools, PETRA_TOOLS.startTask, { commandId: u("t-ar"), text: "اقرأ ملفين من فضلك" });
+	const replies = h.sent.flatMap((m) => (m.type === "reply" ? [m.text] : []));
+	assert.equal(replies[0], "ليس لديك مهمة مفتوحة.");
+	assert.equal(replies[1], "You have no open task.");
+	assert.equal(replies[2], `بدأت المهمة ${u("t-ar")}.`);
 });
