@@ -304,6 +304,8 @@ Petra does not run in a sandbox. Her loop is the decision sequence of the plan, 
 
 Petra uses pi-durable in her Durable Object for her conversation with the owner, with the pi-durable storage for Durable Objects. Her eight tools are: start a task, answer the owner, ask the owner, read the memory, tell the status of a task, stop a task, remember a fact, promote a fact to the core. The last two came with the memory (task 08). She has no tool that changes the business. The tool "stop a task" does the same as the `CancelTask` command, so the owner can stop a task in the chat. The decision point "is this message for a task that runs" finds the task. If it is not sure, Petra asks the owner which task. Each tool of Petra is declared `replay: "safe"`, and each one writes by key.
 
+**The memory in the loop of Petra (decision of Moe, 2026-11-20).** The code puts the texts of the active core items into the instructions of each command turn, under "What you know about this business". This needs no extra model call. The tool "read the memory" returns the active core items and the five best current facts of all pages for the words of the owner message, each with its id. A forgotten fact is not current, so neither part has it. The tool only reads, so it does not mark the command done.
+
 **How Petra takes commands:**
 
 1. A command arrives. Petra writes it to `events` with the status "received". This is the first write. Then she answers "accepted".

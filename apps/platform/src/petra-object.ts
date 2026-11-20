@@ -193,6 +193,8 @@ export class PetraObject extends DurableObject<Env> {
 					costs: costBook,
 					accountLanguage: profile.language,
 					log: (line) => console.log(line),
+					// The core of the memory is in the instructions of each command turn (section 4.6).
+					core: async () => (await memory.readFacts("")).core.map((item) => item.text),
 				}),
 				wakeChanged: (at) => void this.arm(at),
 				// Petra removes the text of each forgotten fact from her own model requests (requirement M9). She keeps

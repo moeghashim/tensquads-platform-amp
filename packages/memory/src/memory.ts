@@ -171,6 +171,9 @@ export interface Memory {
 	search(readList: readonly string[], text: string, limit?: number): Promise<Found[]>;
 	// The facts of a brief: the active core items, then the best search results for the goal.
 	briefFacts(bot: string, goal: string): Promise<Found[]>;
+	// The tool "read the memory" of Petra: the active core items, and the best current facts of all pages for the
+	// words of the text. An empty text gives only the core. A forgotten fact is not current, so it is not here.
+	readFacts(text: string): Promise<{ core: Found[]; facts: Found[] }>;
 	addCoreItem(item: OwnerCommand & { text: string }): Promise<string>;
 	// Only the owner promotes a fact to the core. A fact that is not trusted never goes into it (requirement M3).
 	promoteFact(promote: OwnerCommand & { factId: string }): Promise<string>;
@@ -293,6 +296,13 @@ export function memory<A extends { text: string }>(deps: MemoryDeps<A>): Memory 
 			if (!bot) return [];
 			const core = bot.readList.includes("memory/core") ? await store.activeCore() : [];
 			return [...core, ...(await search(bot.readList, goal, BRIEF_RESULTS))];
+		},
+
+		async readFacts(text) {
+			return {
+				core: await store.activeCore(),
+				facts: await search(["memory/facts"], text, BRIEF_RESULTS),
+			};
 		},
 
 		addCoreItem: (item) => addCore(item, { text: item.text, factRef: null, customerRef: null }),

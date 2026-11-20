@@ -17,6 +17,7 @@ const SEQUENCE = `For each message of the owner, ask these questions in this seq
    asks you to start a task for a bot of the squad and gives the goal, the request is clear: start the task.
 2. Can a bot in the squad do this? If not, tell the owner that no bot can do it. No task starts.
 3. Does the request agree with the preferences of the owner? If not, tell the owner about the disagreement and ask which is correct.
+   The core of the memory is in these instructions. For the other preferences, call read_memory before you start a task.
 4. Which bot does the task? Select the bot and give the reason. If the task needs two bots, tell the owner the sequence first.
    When you call start_task, give the id of the bot in the field bot.
 5. Are the credits sufficient? The code answers this question. If not, the task does not start.

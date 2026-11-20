@@ -266,6 +266,37 @@ test("M6: search is by words, and the brief has the core items, then the best fa
 	]);
 });
 
+test("M6 and M9: read_memory gives the core items and the best facts for the words of the owner message, and no forgotten fact", async () => {
+	const h = await harness("m6-read");
+	const built = h.build();
+	const read = (name: string, text: string) =>
+		runTool(built.tools, PETRA_TOOLS.readMemory, { commandId: u(h, name), text });
+	assert.equal(await read("q0", "Add a delivery banner."), "The memory has no facts yet.");
+	await remember(h, built, "r1", "preferences", "Never mention delivery. We do not deliver.");
+	await remember(h, built, "r2", "preferences", "Delivery prices are secret.");
+	await remember(h, built, "r3", "customers", "Karim buys beans every week.");
+	await built.memory.addCoreItem({
+		commandId: u(h, "c1"),
+		channel: "chat",
+		text: "Answer in short sentences.",
+		at: AT,
+	});
+	await built.memory.forgetFact({ commandId: u(h, "f1"), factId: factId(h, "r2"), at: AT });
+	const sentBefore = h.sent.length;
+	const output = await read("q1", "Add a delivery banner to the website.");
+	assert.equal(
+		output,
+		[
+			"The core of the memory:",
+			`- cmd/${u(h, "c1")}/core: Answer in short sentences.`,
+			"The facts that match the message:",
+			`- ${factId(h, "r1")}: Never mention delivery. We do not deliver.`,
+		].join("\n"),
+	);
+	// The tool only reads: it sends nothing to the owner.
+	assert.equal(h.sent.length, sentBefore);
+});
+
 test("M7: the core takes 25 items; a 26th is refused until the owner removes one; the night job proposes below 20 only", async () => {
 	const h = await harness("m7");
 	const { memory: mem } = h.build();
