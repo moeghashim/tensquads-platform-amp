@@ -1006,3 +1006,13 @@ Append-only learning log for commits and deploys. Add new entries only at the en
   - apps/web/test/owner-ui.test.ts
   - apps/web/package.json
   - package-lock.json
+## 2026-11-20T10:00:52.379Z
+- Trigger: commit
+- Learning: On Cloudflare, a Worker that fetches another workers.dev Worker of the same account gets error 1042. The owner page now uses a service binding PLATFORM, and falls back to fetch when there is no Cloudflare context.
+- Context: fix(web): call the Platform Worker through a service binding
+- Branch: owner-ui
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - apps/web/wrangler.jsonc
+  - apps/web/cloudflare-env.d.ts
+  - apps/web/app/api/worker/[...path]/route.ts
