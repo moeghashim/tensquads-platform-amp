@@ -3,7 +3,13 @@
 
 import { DurableObject } from "cloudflare:workers";
 import { checker } from "@tensquads/checker";
-import { command as commandSchema, type GatewayCall, type OwnerMessage, type PassClaims } from "@tensquads/contracts";
+import {
+	type CommandStepsAnswer,
+	command as commandSchema,
+	type GatewayCall,
+	type OwnerMessage,
+	type PassClaims,
+} from "@tensquads/contracts";
 import { ports, startSystem } from "@tensquads/core";
 import { costs as makeCosts } from "@tensquads/costs";
 import { credits } from "@tensquads/credits";
@@ -19,6 +25,7 @@ import {
 	adminTrailRead,
 	CONVERSATION_KEY,
 	type ConversationState,
+	commandSteps,
 	costWriter,
 	decisionWriter,
 	memoryWriter,
@@ -30,8 +37,10 @@ import {
 	petraCompletion,
 	petraForgotten,
 	petraTools,
+	stepLog,
 	taskWork,
 	taskWriter,
+	timedTools,
 } from "@tensquads/petra";
 import { trail } from "@tensquads/trail";
 
@@ -55,6 +64,8 @@ interface Started {
 	tasks: Tasks;
 	// The trail read of a super admin (section 6.5). It records the read in admin_reads first.
 	adminTrail: (read: { readId: string; adminRef: string; taskId: string; at: string }) => Promise<unknown[]>;
+	// The internal steps of one command, for the owner (GET /v1/commands/{commandId}/steps).
+	steps: (commandId: string) => Promise<CommandStepsAnswer>;
 	loop: PetraLoop;
 	gw: Gateway;
 }
@@ -173,16 +184,21 @@ export class PetraObject extends DurableObject<Env> {
 					? { versions: { petraProvider: petraModel.id.provider, petraModel: petraModel.id.model } }
 					: {}),
 			});
-			const tools = petraTools({
-				writer,
-				decisions: decide,
-				tasks,
-				work,
-				outbox: out,
-				now,
-				memory,
-				accountLanguage: profile.language,
-			});
+			// The model calls and the tool runs of each command, for the owner read of its steps.
+			const steps = stepLog(storage);
+			const tools = timedTools(
+				petraTools({
+					writer,
+					decisions: decide,
+					tasks,
+					work,
+					outbox: out,
+					now,
+					memory,
+					accountLanguage: profile.language,
+				}),
+				steps,
+			);
 			const loop = await openPetraLoop({
 				storage,
 				tools,
@@ -191,6 +207,7 @@ export class PetraObject extends DurableObject<Env> {
 					model: petraModel,
 					tools,
 					costs: costBook,
+					steps,
 					accountLanguage: profile.language,
 					log: (line) => console.log(line),
 					// The core of the memory is in the instructions of each command turn (section 4.6).
@@ -245,7 +262,12 @@ export class PetraObject extends DurableObject<Env> {
 			await core.recover();
 			const adminTrail = (read: Parameters<Started["adminTrail"]>[0]) =>
 				adminTrailRead({ addAdminRead: costRows.addAdminRead, taskTrail: book.taskTrail }, read);
-			return { core, writer, tasks, loop, gw, adminTrail };
+			const readSteps = (commandId: string) =>
+				commandSteps(
+					{ log: steps, decisions: decisionRows.commandDecisions, costs: costRows.commandCosts },
+					commandId,
+				);
+			return { core, writer, tasks, loop, gw, adminTrail, steps: readSteps };
 		})();
 		return this.started;
 	}
@@ -312,6 +334,9 @@ export class PetraObject extends DurableObject<Env> {
 		"/messages": async (_request, started, after) =>
 			Response.json({ messages: await started.writer.ownerMessagesAfter(after) }),
 		"/stream": (_request, started, after) => this.openStream(after, started.writer),
+		// The Worker checked the owner. The steps are of this account only: its storage and its rows.
+		"/steps": async (request, started) =>
+			Response.json(await started.steps(new URL(request.url).searchParams.get("commandId") ?? "")),
 		"/admin-trail": async (request, started) => {
 			const read = (await request.json()) as { readId: string; adminRef: string; taskId: string };
 			const rows = await started.adminTrail({ ...read, at: new Date().toISOString() });

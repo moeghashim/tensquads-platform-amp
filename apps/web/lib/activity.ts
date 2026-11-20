@@ -4,7 +4,8 @@ import type { WorkerMessage } from "./owner-messages";
 export interface ActivityLine {
 	id: number;
 	at: string;
-	kind: "send" | "recv" | "task" | "info" | "error";
+	// The internal steps of Petra have the kind of the step (petra-steps.ts).
+	kind: "send" | "recv" | "task" | "info" | "error" | "model" | "tool" | "decision" | "cost";
 	text: string;
 }
 
@@ -12,7 +13,12 @@ export interface ActivityLine {
 export interface TaskState {
 	taskId: string;
 	status: string;
-	activity?: { bot?: string; attemptNo?: number; turnNo?: number | null; toolCall?: string | null };
+	activity?: {
+		bot?: string;
+		attemptNo?: number;
+		turnNo?: number | null;
+		toolCall?: { id: string; tool: string } | null;
+	};
 }
 
 const TASK_ENDED: ReadonlySet<string> = new Set(["done", "failed", "cancelled"]);
@@ -51,7 +57,7 @@ export function taskLine(task: TaskState): string {
 	const a = task.activity;
 	const parts = [`task ${task.taskId}: ${task.status}`];
 	if (a?.bot) parts.push(`${a.bot} attempt ${a.attemptNo ?? "-"} turn ${a.turnNo ?? "-"}`);
-	if (a?.toolCall) parts.push(`tool ${a.toolCall}`);
+	if (a?.toolCall) parts.push(`tool ${a.toolCall.tool}`);
 	return parts.join(" · ");
 }
 

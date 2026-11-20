@@ -6,7 +6,16 @@ import test from "node:test";
 import { piModel } from "@tensquads/adapters-model";
 import type { Model, ModelAnswer, ModelMessage, ModelRequest } from "@tensquads/core";
 import { ports, startSystem } from "@tensquads/core";
-import { conversationText, limitedModel, MODEL_FAILED_TEXT, PETRA_TOOLS, petraCompletion } from "@tensquads/petra";
+import {
+	conversationText,
+	limitedModel,
+	MODEL_FAILED_TEXT,
+	PETRA_TOOLS,
+	petraCompletion,
+	type RunStep,
+	stepLog,
+	timedTools,
+} from "@tensquads/petra";
 
 import { harness, runTool } from "./task-harness.js";
 
@@ -41,6 +50,7 @@ const TOOLS = [{ name: "answer_owner", description: "Answer the owner.", paramet
 
 interface CompletionExtra {
 	costs?: Parameters<typeof petraCompletion>[0]["costs"];
+	steps?: Parameters<typeof petraCompletion>[0]["steps"];
 	accountLanguage?: "en" | "ar";
 	timeoutMs?: number;
 	log?: (line: string) => void;
@@ -54,6 +64,7 @@ function completion(model: Model, extra: CompletionExtra = {}) {
 		model: limitedModel(model, { timeoutMs: extra.timeoutMs ?? 1000, log }),
 		tools: TOOLS,
 		costs: extra.costs ?? noCosts,
+		steps: extra.steps ?? { add: async () => undefined },
 		accountLanguage: extra.accountLanguage ?? "en",
 		log,
 		...(extra.core ? { core: extra.core } : {}),
@@ -387,4 +398,113 @@ test("N4: after the tool of the command ran, Petra ends her turn with no model c
 	// A tool that only reads, or a tool that failed, still gets the next model call.
 	await complete({ messages: [...owner("c-6", "What do you know?"), toolResult("read_memory")] });
 	assert.equal(seen.length, 1);
+});
+
+// A storage of the Durable Object in memory, with delete.
+function stepStorage() {
+	const map = new Map<string, unknown>();
+	return {
+		map,
+		get: async <T>(key: string) => map.get(key) as T | undefined,
+		put: async (key: string, value: unknown) => void map.set(key, structuredClone(value)),
+		delete: async (key: string) => map.delete(key),
+	};
+}
+
+test("N4: each model call of a command is one step with the provider, the model, the time, the tokens and the chosen tools", async () => {
+	const steps: { commandId: string; step: RunStep }[] = [];
+	const record = { add: async (commandId: string, step: RunStep) => void steps.push({ commandId, step }) };
+	const call = { id: "a", name: "answer_owner", input: { text: "Hi" } };
+	// The model takes 40 ms. The time of the step is the time of the call.
+	const slow: Model = {
+		complete: () => new Promise((resolve) => setTimeout(() => resolve(answerOf("", [call])), 40)),
+	};
+	await completion(slow, { steps: record })({ messages: owner("c-20", "Hello") });
+	// Two timeouts: one failed step with no tokens. The provider and the model come from the id of the port.
+	await completion(fakeModel(["slow", "slow"], []), { steps: record, timeoutMs: 50 })({
+		messages: owner("c-21", "Hello"),
+	});
+	// A turn with no command and a turn after the tool of the command make no step.
+	const history: ModelMessage[] = [{ role: "user", content: "The earlier messages of the owner:\n- Hello" }];
+	await completion(fakeModel([answerOf("Noted.")], []), { steps: record })({ messages: history });
+	await completion(fakeModel([], []), { steps: record })({
+		messages: [...owner("c-22", "Hello"), toolResult("answer_owner")],
+	});
+
+	assert.deepEqual(
+		steps.map(({ commandId, step }) => ({ commandId, ...step, at: typeof step.at, ms: typeof step.ms })),
+		[
+			{
+				commandId: "c-20",
+				kind: "model",
+				at: "string",
+				provider: "openai",
+				model: "gpt-6.2-sol",
+				ms: "number",
+				inputTokens: 1000,
+				outputTokens: 200,
+				tools: ["answer_owner"],
+				failed: false,
+			},
+			{
+				commandId: "c-21",
+				kind: "model",
+				at: "string",
+				provider: "openai",
+				model: "gpt-6.2-sol",
+				ms: "number",
+				inputTokens: 0,
+				outputTokens: 0,
+				tools: [],
+				failed: true,
+			},
+		],
+	);
+	assert.ok(steps[0]?.step.ms !== undefined && steps[0].step.ms >= 35, `ms is ${steps[0]?.step.ms}`);
+	// The failed step has the time of both tries: two timeouts of 50 ms.
+	assert.ok(steps[1]?.step.ms !== undefined && steps[1].step.ms >= 90, `ms is ${steps[1]?.step.ms}`);
+});
+
+test("N4: each tool run is one step with its time; a tool that throws is a failed step and the error goes on", async () => {
+	const log = stepLog(stepStorage());
+	const tools = timedTools(
+		[
+			{ name: "answer_owner", description: "", parameters: {}, execute: async () => "sent" },
+			{
+				name: "start_task",
+				description: "",
+				parameters: {},
+				execute: async () => {
+					throw new Error("The database did not answer.");
+				},
+			},
+		],
+		log,
+	);
+	assert.equal(await runTool(tools, "answer_owner", { commandId: "c-30", text: "x" }), "sent");
+	await assert.rejects(runTool(tools, "start_task", { commandId: "c-30", text: "x" }), /did not answer/);
+	const steps = await log.steps("c-30");
+	assert.deepEqual(
+		steps.map((step) => (step.kind === "tool" ? [step.tool, step.failed] : [])),
+		[
+			["answer_owner", false],
+			["start_task", true],
+		],
+	);
+	assert.deepEqual(await log.steps("c-other"), []);
+});
+
+test("N4: the storage keeps the steps of the last 50 commands only", async () => {
+	const storage = stepStorage();
+	const log = stepLog(storage);
+	const step: RunStep = { kind: "tool", at: "2026-11-20T10:00:00.000Z", tool: "answer_owner", ms: 1, failed: false };
+	for (let i = 1; i <= 51; i += 1) {
+		await log.add(`c-${i}`, step);
+		await log.add(`c-${i}`, step);
+	}
+	assert.deepEqual(await log.steps("c-1"), []);
+	assert.equal((await log.steps("c-2")).length, 2);
+	assert.equal((await log.steps("c-51")).length, 2);
+	// One key for each kept command, and the list of the kept commands.
+	assert.equal(storage.map.size, 51);
 });
