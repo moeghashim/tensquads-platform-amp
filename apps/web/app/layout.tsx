@@ -1,29 +1,20 @@
 import type { Metadata } from "next";
-import { Instrument_Serif, Space_Grotesk } from "next/font/google";
 import type { ReactNode } from "react";
 
+import "@tensquads/ui/fonts.css";
+import "@tensquads/ui/tokens.css";
+import "@tensquads/ui/styles.css";
 import "./globals.css";
 
-const displayFont = Instrument_Serif({
-	subsets: ["latin"],
-	weight: "400",
-	variable: "--font-display",
-});
-
-const sansFont = Space_Grotesk({
-	subsets: ["latin"],
-	variable: "--font-sans",
-});
-
 export const metadata: Metadata = {
-	title: "PI-Starter",
-	description: "Solo-maintainer starter for Vercel or Cloudflare apps, shared packages, and agent workflows.",
+	title: "tensquads: talk to Petra",
+	description: "The owner page of tensquads. Talk to Petra, follow your tasks, and approve actions.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
 	return (
 		<html lang="en">
-			<body className={`${displayFont.variable} ${sansFont.variable}`}>{children}</body>
+			<body>{children}</body>
 		</html>
 	);
 }

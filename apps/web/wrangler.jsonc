@@ -8,6 +8,9 @@
 		"directory": ".open-next/assets",
 		"binding": "ASSETS"
 	},
+	// The owner page calls the Platform Worker through this binding. A Worker cannot fetch another workers.dev
+	// Worker of the same account by its URL (Cloudflare error 1042).
+	"services": [{ "binding": "PLATFORM", "service": "tensquads-platform" }],
 	"observability": {
 		"enabled": true
 	}
