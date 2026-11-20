@@ -42,7 +42,7 @@ export function r2ObjectStore(bucket: BucketBinding, prefix: string): Plugin {
 	};
 }
 
-// The Worker has the queue "jobs" only. The queue "events" comes in a later task.
+// The Worker sends to the queue "jobs" only. In this build, no adapter sends to the queue "events" (section 6.1).
 export function cloudflareQueue(jobs: QueueBinding): Plugin {
 	return {
 		name: "queue-cloudflare",
