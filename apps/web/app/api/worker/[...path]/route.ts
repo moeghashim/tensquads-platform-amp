@@ -1,9 +1,10 @@
 // The owner page calls the Platform Worker through this route, so the browser makes no cross-origin call.
-// It forwards only the two owner calls, with the token of the owner. It keeps no token.
+// It forwards only the owner calls, with the token of the owner. It keeps no token.
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 const WORKER_URL = process.env.PLATFORM_URL ?? "https://tensquads-platform.moe-678.workers.dev";
-const ALLOWED = new Set(["v1/commands", "v1/messages"]);
+// The three owner calls: send a command, read the messages, read the state of one task.
+const ALLOWED = /^v1\/(commands|messages|tasks\/[^/]+)$/;
 
 // On Cloudflare, the service binding PLATFORM. Locally and in the tests, there is no Cloudflare context: plain fetch.
 function platformFetch(): typeof fetch {
@@ -17,7 +18,7 @@ function platformFetch(): typeof fetch {
 
 async function forward(request: Request, path: string[]): Promise<Response> {
 	const route = path.join("/");
-	if (!ALLOWED.has(route)) return Response.json({ code: "not_found", message: "Not found." }, { status: 404 });
+	if (!ALLOWED.test(route)) return Response.json({ code: "not_found", message: "Not found." }, { status: 404 });
 	const query = new URL(request.url).search;
 	const headers = new Headers({ "content-type": "application/json" });
 	const authorization = request.headers.get("authorization");
