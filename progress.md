@@ -913,3 +913,14 @@ Append-only learning log for commits and deploys. Add new entries only at the en
   - docs/evidence/13-staging-and-demo
   - scripts/demo.mjs
   - scripts/test/setup.test.mjs
+## 2026-11-20T07:38:42.210Z
+- Trigger: commit
+- Learning: N9 covered only the model answer. The tools of Petra wrote 12 fixed English texts; they now come from tool-texts.ts and use the same language choice as the model answer.
+- Context: fix(petra): send the fixed tool texts in Arabic for an Arabic message
+- Branch: fix-arabic-tool-texts
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - packages/petra/src/tool-texts.ts
+  - packages/petra/src/petra-tools.ts
+  - apps/platform/src/petra-object.ts
+  - apps/platform/test/petra-model.test.ts

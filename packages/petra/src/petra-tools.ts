@@ -7,9 +7,11 @@ import { testBot } from "@tensquads/bots";
 import type { BotDefinition } from "@tensquads/contracts";
 
 import type { AccountReader, AccountWriter } from "./account-writer.js";
+import { answerLanguage, type Language } from "./language.js";
 import type { Outbox } from "./outbox.js";
 import type { TaskWork } from "./task-work.js";
 import type { TaskReader, TaskRow, TaskWriter } from "./task-writer.js";
+import { type ToolTexts, toolTexts } from "./tool-texts.js";
 
 // The shape of a tool of the loop package. This package does not import the loop (requirement C2).
 export interface PetraToolDefinition {
@@ -85,6 +87,8 @@ export interface PetraToolsDeps {
 	now: () => string;
 	// The memory (packages/memory). This package does not import it (requirement C2).
 	memory: ToolMemory;
+	// The language of the account, for a message with no Latin and no Arabic letters. The default is English.
+	accountLanguage?: Language;
 }
 
 // The part of the memory that the tools use. Each method answers the owner and returns the text of the answer.
@@ -121,6 +125,8 @@ function targets(open: readonly TaskRow[], text: string): TaskRow[] {
 
 export function petraTools(deps: PetraToolsDeps): PetraToolDefinition[] {
 	const { tasks, work, outbox } = deps;
+	// The fixed texts in the language of the owner message (requirement N9).
+	const say = (input: ToolInput): ToolTexts => toolTexts(answerLanguage(input.text, deps.accountLanguage ?? "en"));
 
 	const reply = (input: ToolInput, text: string, taskId?: string) =>
 		outbox.tell({
@@ -171,7 +177,7 @@ export function petraTools(deps: PetraToolsDeps): PetraToolDefinition[] {
 		const options = [...running, NEW_TASK];
 		const [verdict] = await deps.decisions.ask(await asksOf(input, [{ point: "message-for-task", options }]));
 		if (verdict?.sure && verdict.answer !== null) return verdict.answer;
-		await askOwner(input, "message-for-task", "Which task is your message for?", options);
+		await askOwner(input, "message-for-task", say(input).whichTaskForMessage, options);
 		return undefined;
 	}
 
@@ -181,10 +187,10 @@ export function petraTools(deps: PetraToolsDeps): PetraToolDefinition[] {
 		const asks = await asksOf(input, [{ point: "request-clear" }, { point: "which-bot", options: bots }]);
 		const [clear, which] = await deps.decisions.ask(asks);
 		if (!clear?.sure || clear.answer !== "yes") {
-			return askOwner(input, "request-clear", "Your request is not clear to me. What must the task do?", []);
+			return askOwner(input, "request-clear", say(input).notClear, []);
 		}
 		const bot = which?.sure ? TASK_BOTS.find((item) => item.id === which.answer) : undefined;
-		return bot ?? askOwner(input, "which-bot", "Which bot must do this task?", bots);
+		return bot ?? askOwner(input, "which-bot", say(input).whichBot, bots);
 	}
 
 	async function startTask(input: ToolInput): Promise<string> {
@@ -193,7 +199,7 @@ export function petraTools(deps: PetraToolsDeps): PetraToolDefinition[] {
 		if (target !== NEW_TASK) {
 			const sourceRef = `cmd/${input.commandId}`;
 			await tasks.addInbox({ taskId: target, sourceRef, kind: "message", text: input.text, at: deps.now() });
-			await reply(input, `I gave your message to the task ${target}.`, target);
+			await reply(input, say(input).gaveMessage(target), target);
 			return `The message went to the inbox of the task ${target}.`;
 		}
 		const bot = await chooseBot(input);
@@ -207,10 +213,11 @@ export function petraTools(deps: PetraToolsDeps): PetraToolDefinition[] {
 			goal: input.text,
 			replyTo: input.channel,
 		});
+		const words = say(input);
 		const texts = {
-			started: `I started the task ${input.commandId}.`,
-			"no credits": "Your credits are not sufficient for this task.",
-			ended: `The task ${input.commandId} ended.`,
+			started: words.started(input.commandId),
+			"no credits": words.noCredits,
+			ended: words.ended(input.commandId),
 		} as const;
 		await reply(input, texts[outcome], outcome === "no credits" ? undefined : input.commandId);
 		return texts[outcome];
@@ -224,7 +231,7 @@ export function petraTools(deps: PetraToolsDeps): PetraToolDefinition[] {
 			return found.length === 1 && found[0] ? found[0].id : JSON.stringify(found.map((task) => task.id));
 		});
 		if (choice === "none") {
-			await reply(input, "You have no open task.");
+			await reply(input, say(input).noOpenTask);
 			return "No open task.";
 		}
 		if (choice.startsWith("[")) {
@@ -233,7 +240,12 @@ export function petraTools(deps: PetraToolsDeps): PetraToolDefinition[] {
 			await outbox.tell({
 				sourceRef: `cmd/${input.commandId}/question`,
 				channel: input.channel,
-				body: { type: "question", questionId: `${input.commandId}/which`, text: "Which task do I stop?", options },
+				body: {
+					type: "question",
+					questionId: `${input.commandId}/which`,
+					text: say(input).whichTaskToStop,
+					options,
+				},
 			});
 			return "I asked the owner which task to stop.";
 		}
@@ -245,14 +257,12 @@ export function petraTools(deps: PetraToolsDeps): PetraToolDefinition[] {
 	async function taskStatus(input: ToolInput): Promise<string> {
 		const [task] = targets(await tasks.openTasks(), input.text).reverse();
 		if (!task) {
-			await reply(input, "You have no open task.");
+			await reply(input, say(input).noOpenTask);
 			return "No open task.";
 		}
 		const activity = await tasks.taskActivity(task.id, deps.now());
-		const detail = activity
-			? ` It is in attempt ${activity.attemptNo}, turn ${activity.turnNo ?? 0}. The last row is from ${activity.lastAt}.`
-			: "";
-		const text = `The task ${task.id} is ${task.status}.${detail}`;
+		const where = activity && { ...activity, turnNo: activity.turnNo ?? 0 };
+		const text = say(input).status(task.id, task.status, where);
 		await reply(input, text, task.id);
 		return text;
 	}
@@ -261,7 +271,7 @@ export function petraTools(deps: PetraToolsDeps): PetraToolDefinition[] {
 	async function rememberFact(input: ToolInput): Promise<string> {
 		const match = REMEMBER.exec(input.text.trim());
 		if (!match) {
-			const text = "Write the fact as: remember on <page>: <text>.";
+			const text = say(input).rememberForm;
 			await reply(input, text);
 			return text;
 		}
@@ -273,7 +283,7 @@ export function petraTools(deps: PetraToolsDeps): PetraToolDefinition[] {
 	async function promoteFact(input: ToolInput): Promise<string> {
 		const factId = PROMOTE.exec(input.text)?.[1];
 		if (!factId) {
-			const text = "Write the promote as: promote fact <id>.";
+			const text = say(input).promoteForm;
 			await reply(input, text);
 			return text;
 		}
