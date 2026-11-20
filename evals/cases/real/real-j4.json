@@ -1,6 +1,6 @@
 {
 	"id": "REAL-J4",
-	"source": "Plan Part 12, case J4. Adapted to the test bot: the preference is a fact of the memory of the account.",
+	"source": "Plan Part 12, case J4. Adapted to the test bot: the preference is a fact of the memory of the account, and the request is a task that the test bot can do. The test bot cannot edit a website, so a website request stops at step 2 before the preference check.",
 	"tags": [
 		"petra",
 		"real",
@@ -17,7 +17,7 @@
 	"input": [
 		{
 			"type": "OwnerMessage",
-			"text": "Add a delivery banner to the website."
+			"text": "Start a task for test-bot: write a short message to customers about our new delivery service."
 		}
 	],
 	"expected": {

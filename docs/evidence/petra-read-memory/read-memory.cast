@@ -1,0 +1,11 @@
+{"version": 2, "width": 80, "height": 24, "timestamp": 1795173803, "env": {"SHELL": "/bin/bash", "TERM": "dumb"}}
+[0.00561, "o", "$ node --test --import tsx --test-name-pattern \"M6\" test/memory.test.ts test/petra-model.test.ts\r\n"]
+[0.796281, "o", "✔ M6: search is by words, and the brief has the core items, then the best facts for the words of the goal, each with its id (338.012169ms)\r\n"]
+[1.059689, "o", "✔ M6 and M9: read_memory gives the core items and the best facts for the words of the owner message, and no forgotten fact (265.287235ms)\r\n"]
+[1.434239, "o", "✔ M6: each command turn has the active core items of the memory in the instructions, and no core gives no heading (3.11056ms)\r\n"]
+[1.446441, "o", "ℹ tests 3\r\n"]
+[1.446485, "o", "ℹ pass 3\r\nℹ fail 0\r\n"]
+[1.45156, "o", "\r\n"]
+[1.451845, "o", "$ npx tsx ../../.amp/in/orb-backup/j4-probe.ts \"Start a task for test-bot: write a short message to customers about our new delivery service.\"\r\n"]
+[3.623306, "o", "turn 1 (1478 ms): [{\"name\":\"read_memory\",\"input\":{\"commandId\":\"j4-1\",\"channel\":\"chat\",\"text\":\"Start a task for test-bot: write a short message to customers about our new delivery service.\"}}] \r\n"]
+[5.181864, "o", "turn 2 (1558 ms): [{\"name\":\"ask_owner\",\"input\":{\"commandId\":\"j4-1\",\"channel\":\"chat\",\"text\":\"Your saved instruction says not to mention delivery because you don’t offer it. Should I treat your new delivery service as an update to that instruction and have test-bot draft the customer message?\"}}] \r\n"]

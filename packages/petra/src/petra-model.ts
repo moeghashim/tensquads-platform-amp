@@ -18,6 +18,16 @@ export interface PetraCompletionDeps {
 	// The language of the account, for a message that has no Latin and no Arabic letters.
 	accountLanguage: Language;
 	log: (line: string) => void;
+	// The texts of the active core items of the memory. Each command turn has them in the instructions (decision of
+	// Moe, 2026-11-20). With no function, the instructions have no core.
+	core?: () => Promise<readonly string[]>;
+}
+
+// The part of the instructions with the core of the memory. An empty core gives no part.
+function coreText(core: readonly string[]): string {
+	return core.length === 0
+		? ""
+		: `\n\nWhat you know about this business:\n${core.map((text) => `- ${text}`).join("\n")}`;
 }
 
 // The fixed message when the model fails two times (requirement N6). The message of the owner stays in the database.
@@ -147,7 +157,9 @@ export function petraCompletion(
 			return codeAnswer("", []);
 		}
 		const language = answerLanguage(input?.text ?? "", deps.accountLanguage);
-		const system: ModelMessage = { role: "system", content: `${instructions}\n\n${languageInstruction(language)}` };
+		const core = input && deps.core ? coreText(await deps.core()) : "";
+		const content = `${instructions}${core}\n\n${languageInstruction(language)}`;
+		const system: ModelMessage = { role: "system", content };
 		const answer = shape(await call([system, ...messages], input), input, language);
 		// An answer with no tool call ends the turn of Petra. Its cost rows are written. The runner of evals reads
 		// this line, because the command is done before this last model call (task 11).

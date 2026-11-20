@@ -1031,3 +1031,19 @@ Append-only learning log for commits and deploys. Add new entries only at the en
   - apps/web/lib/owner-messages.ts
   - apps/web/lib/owner-session.ts
   - apps/web/test/owner-ui.test.ts
+## 2026-11-20T11:22:27.251Z
+- Trigger: commit
+- Learning: read_memory now returns the active core and the five best current facts for the owner message; the core is in the instructions of each command turn. J4 with the test bot needs a request that the bot can do, else Petra stops at step 2.
+- Context: feat(petra): read the memory in the loop of Petra
+- Branch: petra-read-memory
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - apps/platform/src/petra-object.ts
+  - apps/platform/test/memory.test.ts
+  - apps/platform/test/petra-model.test.ts
+  - docs/ARCHITECTURE.md
+  - packages/memory/src/memory.ts
+  - packages/petra/src/instructions.ts
+  - packages/petra/src/petra-model.ts
+  - packages/petra/src/petra-tools.ts
+  - evals/cases/real/real-j4.json

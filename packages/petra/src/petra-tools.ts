@@ -119,6 +119,24 @@ export interface PetraToolsDeps {
 export interface ToolMemory {
 	rememberFact(fact: { commandId: string; channel: string; page: string; text: string; at: string }): Promise<string>;
 	promoteFact(promote: { commandId: string; channel: string; factId: string; at: string }): Promise<string>;
+	// The active core items, and the best facts for the words of the text. It only reads.
+	readFacts(text: string): Promise<{ core: readonly MemoryItem[]; facts: readonly MemoryItem[] }>;
+}
+
+interface MemoryItem {
+	id: string;
+	text: string;
+}
+
+// The output of read_memory for the model: each item with its id, so the model can name it.
+function memoryText(read: { core: readonly MemoryItem[]; facts: readonly MemoryItem[] }): string {
+	const lines = (heading: string, items: readonly MemoryItem[]) =>
+		items.length === 0 ? [] : [heading, ...items.map((item) => `- ${item.id}: ${item.text}`)];
+	const all = [
+		...lines("The core of the memory:", read.core),
+		...lines("The facts that match the message:", read.facts),
+	];
+	return all.length === 0 ? "The memory has no facts yet." : all.join("\n");
 }
 
 // The owner writes a fact as "remember on <page>: <text>", and promotes a fact as "promote fact <id>".
@@ -354,10 +372,11 @@ export function petraTools(deps: PetraToolsDeps): PetraToolDefinition[] {
 		}),
 		{
 			name: PETRA_TOOLS.readMemory,
-			description: "Read the memory of the account.",
+			description:
+				"Read the memory of the account: the core, and the facts that match the message of the owner. Use it to check the preferences of the owner.",
 			parameters: NO_INPUT,
-			// The memory comes in a later task. The tool only reads, so it does not mark a command.
-			execute: async () => "The memory has no facts yet.",
+			// The code gives the text of the owner message. The tool only reads, so it does not mark a command.
+			execute: async (raw) => memoryText(await deps.memory.readFacts(inputOf(raw).text)),
 		},
 		tool(PETRA_TOOLS.taskStatus, "Tell the status of a task.", taskStatus),
 		tool(PETRA_TOOLS.stopTask, "Stop a task of the owner. The message of the owner can name the task.", stopTask),

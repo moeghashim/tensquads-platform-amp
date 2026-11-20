@@ -44,6 +44,7 @@ interface CompletionExtra {
 	accountLanguage?: "en" | "ar";
 	timeoutMs?: number;
 	log?: (line: string) => void;
+	core?: () => Promise<readonly string[]>;
 }
 
 // The loop of Petra gets the model port with its time limit and its second try, as the plug-in list gives it.
@@ -55,6 +56,7 @@ function completion(model: Model, extra: CompletionExtra = {}) {
 		costs: extra.costs ?? noCosts,
 		accountLanguage: extra.accountLanguage ?? "en",
 		log,
+		...(extra.core ? { core: extra.core } : {}),
 	});
 }
 
@@ -89,6 +91,18 @@ test("N9: the request has the instructions of Petra, with plain text and the too
 	assert.match(systemText(seen[0]), /Do not use markdown\./);
 	assert.deepEqual(seen[0]?.toolDefinitions, TOOLS);
 	assert.deepEqual(seen[0]?.tools, ["answer_owner"]);
+});
+
+test("M6: each command turn has the active core items of the memory in the instructions, and no core gives no heading", async () => {
+	const seen: ModelRequest[] = [];
+	const core = async () => ["Never mention delivery.", "Answer in short sentences."];
+	await completion(fakeModel([answerOf("ok")], seen), { core })({ messages: owner("c-1", "Hello") });
+	assert.match(
+		systemText(seen[0]),
+		/What you know about this business:\n- Never mention delivery\.\n- Answer in short sentences\./,
+	);
+	await completion(fakeModel([answerOf("ok")], seen), { core: async () => [] })({ messages: owner("c-2", "Hi") });
+	assert.doesNotMatch(systemText(seen[1]), /What you know about this business/);
 });
 
 test("N5: the command id and the channel of a tool come from the current command, never from the model", async () => {
