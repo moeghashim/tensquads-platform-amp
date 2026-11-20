@@ -341,3 +341,20 @@ test("N9: the fixed texts of the tools are in Arabic for an Arabic message, and 
 	assert.equal(replies[1], "You have no open task.");
 	assert.equal(replies[2], `بدأت المهمة ${u("t-ar")}.`);
 });
+
+test("N4: after the tool of the command ran, Petra ends her turn with no model call and no cost row", async () => {
+	const seen: ModelRequest[] = [];
+	const rows: unknown[] = [];
+	const lines: string[] = [];
+	const costs = { modelCall: async (...row: unknown[]) => void rows.push(row) };
+	const complete = completion(fakeModel([answerOf("Done.")], seen), { costs, log: (line) => lines.push(line) });
+	const answer = await complete({ messages: [...owner("c-5", "Hello"), toolResult("answer_owner")] });
+	assert.deepEqual(answer.toolCalls, []);
+	assert.equal(seen.length, 0);
+	assert.equal(rows.length, 0);
+	// The runner of evals reads this line to know that the turn of Petra ended.
+	assert.ok(lines.includes("petra: turn ended c-5"));
+	// A tool that only reads, or a tool that failed, still gets the next model call.
+	await complete({ messages: [...owner("c-6", "What do you know?"), toolResult("read_memory")] });
+	assert.equal(seen.length, 1);
+});

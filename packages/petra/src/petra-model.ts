@@ -134,6 +134,12 @@ export function petraCompletion(
 
 	return async ({ messages }) => {
 		const input = conversationInput(messages);
+		// The tool of the command ran and answered the owner. A model call now only adds time and cost, so the code
+		// ends the turn. The next command of the owner then starts sooner.
+		if (input?.handled) {
+			deps.log(`petra: turn ended ${input.commandId}`);
+			return codeAnswer("", []);
+		}
 		const language = answerLanguage(input?.text ?? "", deps.accountLanguage);
 		const system: ModelMessage = { role: "system", content: `${instructions}\n\n${languageInstruction(language)}` };
 		const answer = shape(await call([system, ...messages], input), input, language);

@@ -933,3 +933,12 @@ Append-only learning log for commits and deploys. Add new entries only at the en
 - Actor: Moe Ghashim <moe@10claws.com>
 - Changed Paths:
   - packages/petra/src/instructions.ts
+## 2026-11-20T08:10:52.893Z
+- Trigger: commit
+- Learning: After the tool of a command answered the owner, Petra still asked the model again: about 8 s and one paid call more for each message. The code now ends the turn. OpenAI and Anthropic accept the empty assistant message in the history.
+- Context: perf(petra): end the turn with no model call after the tool of the command
+- Branch: speed-petra-turns
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - packages/petra/src/petra-model.ts
+  - apps/platform/test/petra-model.test.ts
