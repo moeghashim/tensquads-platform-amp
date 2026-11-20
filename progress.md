@@ -924,3 +924,12 @@ Append-only learning log for commits and deploys. Add new entries only at the en
   - packages/petra/src/petra-tools.ts
   - apps/platform/src/petra-object.ts
   - apps/platform/test/petra-model.test.ts
+
+## 2026-11-20T07:37:24.809Z
+- Trigger: commit
+- Learning: A real model asked the owner which files a bot must read. One rule in step 1 of Petra's sequence (the bot finds its own inputs) fixed real evals P4 and P5 with OpenAI, and P2 and J3 still pass.
+- Context: fix(petra): start a clear task without asking for files
+- Branch: fix-petra-clear-tasks
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - packages/petra/src/instructions.ts
