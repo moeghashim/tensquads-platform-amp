@@ -24,6 +24,8 @@ const ROLES = {
 	"admin views": { name: "ts_admin_views", key: "adminViews" },
 } as const;
 
+const literal = (value: string) => `'${value.replaceAll("'", "''")}'`;
+
 // One transaction is one short connection. A Durable Object must not keep a socket between requests.
 export function sqlDatabase(connections: SqlConnections, newClient: (url: string) => SqlClient): Database {
 	async function transaction<T>(scope: DatabaseScope, work: (tx: Transaction) => Promise<T>): Promise<T> {
@@ -41,11 +43,12 @@ export function sqlDatabase(connections: SqlConnections, newClient: (url: string
 		});
 		await client.connect();
 		try {
-			await client.query("BEGIN");
-			await client.query(`SET LOCAL ROLE ${role.name}`);
-			if (scope.role === "petra") {
-				await client.query("SELECT set_config('app.account_id', $1, true)", [scope.accountId]);
-			}
+			// The start of the transaction is one round trip: a simple query with three statements. A statement with
+			// parameters cannot be in a list, so the account id is a literal, with each quote doubled. The server has
+			// standard_conforming_strings on, so this is the full escape.
+			const account =
+				scope.role === "petra" ? `; SELECT set_config('app.account_id', ${literal(scope.accountId)}, true)` : "";
+			await client.query(`BEGIN; SET LOCAL ROLE ${role.name}${account}`);
 			const tx: Transaction = {
 				query: async <Row>(sql: string, params: readonly unknown[] = []) => {
 					if (lost) throw lost;

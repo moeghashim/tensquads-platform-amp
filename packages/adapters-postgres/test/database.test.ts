@@ -37,6 +37,16 @@ test("the Postgres adapter is one row of a plug-in list", async () => {
 	await system.stop();
 });
 
+test("P3: an account id with quotes stays one value and cannot change the role", async () => {
+	const accountId = "a'; RESET ROLE; SELECT 'x";
+	const rows = await postgresDatabase(connections).transaction({ role: "petra", accountId }, (tx) =>
+		tx.query<{ role: string; account: string }>(
+			"SELECT current_role AS role, current_setting('app.account_id') AS account",
+		),
+	);
+	assert.deepEqual(rows, [{ role: "ts_petra", account: accountId }]);
+});
+
 test("a role with no connection fails with a clear message", async () => {
 	const database = postgresDatabase({ platform: connections.platform });
 	await assert.rejects(

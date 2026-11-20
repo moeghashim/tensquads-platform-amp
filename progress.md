@@ -942,3 +942,12 @@ Append-only learning log for commits and deploys. Add new entries only at the en
 - Changed Paths:
   - packages/petra/src/petra-model.ts
   - apps/platform/test/petra-model.test.ts
+## 2026-11-20T08:20:03.117Z
+- Trigger: commit
+- Learning: Each transaction opened BEGIN, SET LOCAL ROLE and set_config as three round trips to Neon. One simple query with three statements saves two of them. The account id is then a literal with each quote doubled, and a test with a hostile id proves it stays one value.
+- Context: perf(core): start a transaction in one round trip
+- Branch: speed-petra-turns
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - packages/core/src/lib/sql-database.ts
+  - packages/adapters-postgres/test/database.test.ts
