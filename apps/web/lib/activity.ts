@@ -13,7 +13,12 @@ export interface ActivityLine {
 export interface TaskState {
 	taskId: string;
 	status: string;
-	activity?: { bot?: string; attemptNo?: number; turnNo?: number | null; toolCall?: string | null };
+	activity?: {
+		bot?: string;
+		attemptNo?: number;
+		turnNo?: number | null;
+		toolCall?: { id: string; tool: string } | null;
+	};
 }
 
 const TASK_ENDED: ReadonlySet<string> = new Set(["done", "failed", "cancelled"]);
@@ -52,7 +57,7 @@ export function taskLine(task: TaskState): string {
 	const a = task.activity;
 	const parts = [`task ${task.taskId}: ${task.status}`];
 	if (a?.bot) parts.push(`${a.bot} attempt ${a.attemptNo ?? "-"} turn ${a.turnNo ?? "-"}`);
-	if (a?.toolCall) parts.push(`tool ${a.toolCall}`);
+	if (a?.toolCall) parts.push(`tool ${a.toolCall.tool}`);
 	return parts.join(" · ");
 }
 

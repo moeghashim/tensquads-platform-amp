@@ -1074,3 +1074,13 @@ Append-only learning log for commits and deploys. Add new entries only at the en
   - packages/petra/src/petra-model.ts
   - docs/evidence/owner-petra-steps/petra-steps.cast
   - docs/evidence/owner-petra-steps/owner-page-petra-steps.png
+## 2026-11-20T11:21:40.214Z
+- Trigger: commit
+- Learning: The task activity of GET /v1/tasks/{id} has toolCall as an object { id, tool } (taskStatusAnswer in contracts). A web type that copies a contract must use the shape of the contract, and its test fixture must too, else the test passes with a wrong shape.
+- Context: fix(web): show the tool name of a task line, and document the steps call as a proposal GET /v1/tasks/{id} gives activity.toolCall as { id, tool }. The task line showed "tool [object Object]". It now shows the tool name. docs/ARCHITECTURE.md sections 6.5 and 7.3 name the owner call GET /v1/commands/{commandId}/steps and its storage. Both are marked "Proposal, waits for Moe". Repro-Prompt: Add to PR #29 the one-line fix for "tool [object Object]" (use activity.toolCall.tool) with a test that fails first, and the new owner call GET /v1/commands/{id}/steps in ARCHITECTURE section 6.5, marked proposal, waits for Moe. Run docs:list and the four checks, then push.
+- Branch: owner-petra-steps
+- Actor: Amp <amp@ampcode.com>
+- Changed Paths:
+  - apps/web/lib/activity.ts
+  - apps/web/test/owner-ui.test.ts
+  - docs/ARCHITECTURE.md

@@ -181,7 +181,8 @@ test("the activity panel names each task that Petra started, in English and in A
 		taskLine({
 			taskId: "t-1",
 			status: "running",
-			activity: { bot: "test-bot", attemptNo: 2, turnNo: 3, toolCall: "read_file" },
+			// GET /v1/tasks/{id} gives the tool call as an object (taskStatusAnswer in contracts).
+			activity: { bot: "test-bot", attemptNo: 2, turnNo: 3, toolCall: { id: "call-7", tool: "read_file" } },
 		}),
 		"task t-1: running · test-bot attempt 2 turn 3 · tool read_file",
 	);

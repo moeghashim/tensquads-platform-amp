@@ -510,6 +510,7 @@ One HTTP interface, with JSON. Each path starts with `/v1`.
 | `GET /v1/messages?after={seq}` | An owner | Gives the messages of section 6.3 for the account, with `seq` larger than the number, in sequence |
 | `GET /v1/messages/stream?after={seq}` | An owner | A WebSocket. Petra sends each message after the number, then each new message |
 | `GET /v1/tasks/{taskId}` | An owner | The status of one task of the account |
+| `GET /v1/commands/{commandId}/steps` | An owner | **Proposal, waits for Moe.** The internal steps of Petra for one command of the account, in time order: each model call (provider, model, ms, tokens, the tools that the model chose), each tool run (tool, ms), each `decisions` row and each `costs` row with a key that starts with `cmd/{commandId}/`. A step has no text of a message and no key. Petra keeps the model calls and the tool runs in her storage, for the last 50 commands (section 7.3). A command with no step gives an empty list |
 | `POST /v1/gateway/{call}` | A sandbox, with a pass | One gateway call of section 3.5 |
 | `POST /v1/launcher/take`, `POST /v1/launcher/report` | The launcher, with its key | Section 3.6 |
 | `POST /v1/admin/commands` | A super admin | Takes one admin command of section 6.2 |
@@ -605,6 +606,7 @@ In each Petra:
 - The tables of pi-durable for the loop of Petra, with the prefix `pi_`.
 - The work list of commands, the counter of `seq` for messages, and the mark "in progress" and the saved answer of each gateway call of each open attempt, with the prefix `petra_`.
 - Petra saves the new value of the counter before she writes the message. After a stop, a number can be skipped. A number is never used two times.
+- **Proposal, waits for Moe.** The model calls and the tool runs of the last 50 commands, for `GET /v1/commands/{commandId}/steps`, with the prefix `petra_steps`. After a loss of the storage, the call still gives the `decisions` and `costs` rows of the command.
 
 In the Platform object: the list of sandboxes to start, and the local date of the last night job of each account, and one marker row. If the marker is not there at a start, the Platform object lost its storage.
 
