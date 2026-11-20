@@ -6,6 +6,7 @@ import { type FormEvent, useState } from "react";
 
 import { type OwnerView, openQuestion, ownerView, placeSent, type SentText } from "../lib/owner-messages";
 import { useOwnerSession } from "../lib/owner-session";
+import { ActivityPanel } from "./activity-panel";
 import { SignInForm } from "./sign-in-form";
 
 const ACTION_LABELS: Record<string, string> = { refund: "Refund" };
@@ -62,9 +63,11 @@ function Composer({ view, send }: { view: OwnerView; send: Send }) {
 		const text = draft.trim();
 		if (!text) return;
 		setDraft("");
-		const body = question
-			? ownerAnswerCommand({ questionId: question.questionId, text })
-			: ownerMessageCommand({ messageId: crypto.randomUUID(), channel: "web", text });
+		// Petra keeps her own question in her conversation, so a plain message answers it.
+		const body =
+			question && !question.fromPetra
+				? ownerAnswerCommand({ questionId: question.questionId, text })
+				: ownerMessageCommand({ messageId: crypto.randomUUID(), channel: "web", text });
 		send(body, text);
 	}
 
@@ -90,16 +93,19 @@ export function OwnerChat() {
 	const view = ownerView(session.messages);
 	const send: Send = (body, text) => void session.send(body, text);
 	return (
-		<main className="owner-shell">
-			<header className="owner-header">
-				<h1>Petra</h1>
-				<button type="button" className="owner-link" onClick={() => session.signOut()}>
-					Sign out
-				</button>
-			</header>
-			<MessageList view={view} sent={session.sent} thinking={session.thinking} send={send} />
-			<Composer view={view} send={send} />
-			{session.error ? <p className="owner-error">{session.error}</p> : null}
+		<main className="owner-layout">
+			<div className="owner-shell">
+				<header className="owner-header">
+					<h1>Petra</h1>
+					<button type="button" className="owner-link" onClick={() => session.signOut()}>
+						Sign out
+					</button>
+				</header>
+				<MessageList view={view} sent={session.sent} thinking={session.thinking} send={send} />
+				<Composer view={view} send={send} />
+				{session.error ? <p className="owner-error">{session.error}</p> : null}
+			</div>
+			<ActivityPanel lines={session.activity} />
 		</main>
 	);
 }

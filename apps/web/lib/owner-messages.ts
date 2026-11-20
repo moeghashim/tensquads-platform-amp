@@ -47,12 +47,17 @@ export function mergeMessages(list: WorkerMessage[], fresh: readonly WorkerMessa
 	return [...list, ...added].sort((a, b) => a.seq - b.seq);
 }
 
+// The questions that Petra asks herself, with no task: "{commandId}/ask" and the decision points. The platform
+// takes an OwnerAnswer only for a question of a task, so the answer to one of these goes as an owner message.
+const PETRA_QUESTION = /\/(ask|request-clear|which-bot|message-for-task|which)$/;
+
 // A question is open while it is the newest message of Petra and Petra took no answer for it.
-export function openQuestion(view: OwnerView): { questionId: string; text: string } | undefined {
+export function openQuestion(view: OwnerView): { questionId: string; text: string; fromPetra: boolean } | undefined {
 	const newest = view.messages.at(-1);
 	if (newest?.type !== "question") return undefined;
 	const questionId = String(newest.questionId);
-	return view.answered.has(questionId) ? undefined : { questionId, text: String(newest.text) };
+	if (view.answered.has(questionId)) return undefined;
+	return { questionId, text: String(newest.text), fromPetra: PETRA_QUESTION.test(questionId) };
 }
 
 export interface SentText {

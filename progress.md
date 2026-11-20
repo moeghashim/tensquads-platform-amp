@@ -1016,3 +1016,18 @@ Append-only learning log for commits and deploys. Add new entries only at the en
   - apps/web/wrangler.jsonc
   - apps/web/cloudflare-env.d.ts
   - apps/web/app/api/worker/[...path]/route.ts
+## 2026-11-20T10:39:56.844Z
+- Trigger: commit
+- Learning: The platform takes an OwnerAnswer only for a question of a task. Petra's own questions ({commandId}/ask and the decision points) live in her conversation, so the page answers them with an OwnerMessage. The activity panel reads only the owner API: the commands it sends, the messages it gets, and GET /v1/tasks/{id} for each task that a message names.
+- Context: feat(web): show the activity behind the chat, and answer Petra's own questions as messages
+- Branch: owner-activity
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - apps/web/app/activity-panel.tsx
+  - apps/web/app/owner-chat.tsx
+  - apps/web/app/globals.css
+  - apps/web/app/api/worker/[...path]/route.ts
+  - apps/web/lib/activity.ts
+  - apps/web/lib/owner-messages.ts
+  - apps/web/lib/owner-session.ts
+  - apps/web/test/owner-ui.test.ts

@@ -3,6 +3,16 @@
 import { type PlatformOwnerCommandBody, withCommandMeta } from "@tensquads/ui/schemas";
 import { useRef, useState } from "react";
 
+import {
+	type ActivityLine,
+	arrivalLines,
+	openWatched,
+	sendResultLine,
+	type TaskState,
+	type TaskWatch,
+	taskUpdate,
+	watchTasks,
+} from "./activity";
 import { mergeMessages, type WorkerMessage } from "./owner-messages";
 import { useMountEffect } from "./use-mount-effect";
 
@@ -30,14 +40,27 @@ async function readMessages(token: string, after: number): Promise<WorkerMessage
 	}
 }
 
+// The state of one task, or nothing when the call failed.
+async function readTask(token: string, taskId: string): Promise<TaskState | undefined> {
+	try {
+		const response = await workerCall(token, `v1/tasks/${encodeURIComponent(taskId)}`);
+		return response.ok ? ((await response.json()) as TaskState) : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+const MAX_LINES = 300;
+const clock = () => new Date().toISOString().slice(11, 23);
+
 // One command with its id and time. A failed network call is sent again with the same command id.
-async function sendCommand(token: string, body: PlatformOwnerCommandBody): Promise<boolean> {
+async function sendCommand(token: string, body: PlatformOwnerCommandBody): Promise<{ ok: boolean; status: string }> {
 	const command = withCommandMeta(body, { commandId: crypto.randomUUID(), at: new Date().toISOString() });
 	for (let attempt = 0; attempt < 2; attempt += 1) {
 		const response = await workerCall(token, "v1/commands", command).catch(() => undefined);
-		if (response) return response.ok;
+		if (response) return { ok: response.ok, status: String(response.status) };
 	}
-	return false;
+	return { ok: false, status: "network error" };
 }
 
 function scrollToEnd() {
@@ -54,12 +77,45 @@ export function useOwnerSession() {
 	const [error, setError] = useState<string | null>(null);
 	const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 	const lastSeq = useRef(0);
+	// The activity panel: what the page sends and gets, and the state of each task that runs.
+	const [activity, setActivity] = useState<ActivityLine[]>([]);
+	const sentAt = useRef<number | null>(null);
+	const watched = useRef<TaskWatch>(new Map());
+
+	const lineId = useRef(0);
+	const loaded = useRef(false);
+
+	function log(kind: ActivityLine["kind"], text: string) {
+		lineId.current += 1;
+		const line = { id: lineId.current, at: clock(), kind, text };
+		setActivity((lines) => [...lines.slice(-(MAX_LINES - 1)), line]);
+	}
+
+	// Reads each watched task, and writes a line when its state changed.
+	async function pollTasks(current: string) {
+		for (const taskId of openWatched(watched.current)) {
+			const line = taskUpdate(watched.current, await readTask(current, taskId));
+			if (line) log("task", line);
+		}
+	}
+
+	// The activity lines of one read. The first read of a session is the history: one summary line, no task watch.
+	function noteArrival(fresh: readonly WorkerMessage[]) {
+		const first = !loaded.current;
+		loaded.current = true;
+		const wait = sentAt.current === null ? null : Date.now() - sentAt.current;
+		for (const line of arrivalLines(fresh, first, wait)) log(line.kind, line.text);
+		if (!first) watchTasks(watched.current, fresh);
+	}
 
 	async function poll(current: string) {
 		const fresh = await readMessages(current, lastSeq.current);
 		if (fresh === "unauthorized") return signOut("This token is not valid.");
-		const last = fresh?.at(-1);
-		if (!fresh || !last) return;
+		await pollTasks(current);
+		if (!fresh) return;
+		noteArrival(fresh);
+		const last = fresh.at(-1);
+		if (!last) return;
 		lastSeq.current = Math.max(lastSeq.current, last.seq);
 		setMessages((list) => mergeMessages(list, fresh));
 		setWaitingFrom((from) => (from !== null && last.seq > from ? null : from));
@@ -76,6 +132,9 @@ export function useOwnerSession() {
 		lastSeq.current = 0;
 		setMessages([]);
 		setSent([]);
+		setActivity([]);
+		watched.current.clear();
+		loaded.current = false;
 		setError(null);
 		setToken(next);
 		sessionStorage.setItem(TOKEN_KEY, next);
@@ -104,11 +163,16 @@ export function useOwnerSession() {
 		setWaitingFrom(lastSeq.current);
 		if (text) setSent((list) => [...list, { afterSeq: lastSeq.current, text }]);
 		scrollToEnd();
-		if (!(await sendCommand(token, body))) {
+		sentAt.current = Date.now();
+		log("send", `page → POST /v1/commands ${body.type}`);
+		const answer = await sendCommand(token, body);
+		const result = sendResultLine(answer, Date.now() - sentAt.current);
+		log(result.kind, result.text);
+		if (!answer.ok) {
 			setWaitingFrom(null);
 			setError("The message did not reach Petra. Try again.");
 		}
 	}
 
-	return { token, messages, sent, thinking: waitingFrom !== null, error, signIn, signOut, send };
+	return { token, messages, sent, activity, thinking: waitingFrom !== null, error, signIn, signOut, send };
 }
