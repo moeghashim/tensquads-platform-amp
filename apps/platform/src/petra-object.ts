@@ -318,7 +318,11 @@ export class PetraObject extends DurableObject<Env> {
 	}
 
 	private async command(request: Request, { core, writer }: Started): Promise<Response> {
-		const body = (await request.json()) as { command: unknown; origin: "owner" | "system"; identityRef?: string };
+		const body = (await request.json()) as {
+			command: unknown;
+			origin: "owner" | "system" | "not trusted";
+			identityRef?: string;
+		};
 		// A command of an owner is valid only if owners has the identity for this account (section 6.1).
 		if (body.origin === "owner" && !(await writer.isOwner(body.identityRef ?? ""))) {
 			return errorResponse(403, "forbidden", "This owner is not an owner of the account.");

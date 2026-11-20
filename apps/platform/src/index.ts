@@ -257,14 +257,22 @@ export default {
 			return errorResponse(500, "internal", "An internal error occurred.");
 		}
 	},
-	// The consumer of the queue "jobs". It gives each command to the Petra of its account.
+	// The consumer of the queues "jobs" and "events". It gives each command to the Petra of its account.
+	// A message of the queue "events" is an outside event. Its origin is "not trusted", and it can only be an
+	// ExternalEvent (section 6.1). The consumer drops each other command, so a retry does not give it again.
 	async queue(batch, env): Promise<void> {
+		const outside = batch.queue === "events";
 		for (const message of batch.messages) {
 			const { accountId, command } = message.body;
+			if (outside && command.type !== "ExternalEvent") {
+				console.error(`The queue events dropped a command of the type ${command.type}.`);
+				message.ack();
+				continue;
+			}
 			const petra = env.PETRA.get(env.PETRA.idFromName(accountId));
 			const response = await petra.fetch("https://petra/command", {
 				method: "POST",
-				body: JSON.stringify({ command, origin: "system" }),
+				body: JSON.stringify({ command, origin: outside ? "not trusted" : "system" }),
 			});
 			if (response.ok) message.ack();
 			else message.retry();

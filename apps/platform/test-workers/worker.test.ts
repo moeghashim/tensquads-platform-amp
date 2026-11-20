@@ -1,4 +1,6 @@
 // The tests of the Worker and the two Durable Objects, inside the Workers runtime.
+
+import { createExecutionContext, createMessageBatch, env, getQueueResult } from "cloudflare:test";
 import { TEST_TOKENS } from "@tensquads/adapters-test";
 import {
 	acceptedAnswer,
@@ -6,7 +8,11 @@ import {
 	OWNER_MESSAGE_TYPES,
 	ownerMessage as ownerMessageSchema,
 } from "@tensquads/contracts";
+import type { JobMessage } from "@tensquads/petra";
 import { beforeAll, describe, expect, test } from "vitest";
+
+import type { Env } from "../src/env.js";
+import worker from "../src/index.js";
 
 import {
 	AT,
@@ -90,6 +96,37 @@ describe("the interface of the Platform Worker", () => {
 		await until(() => again.received.length === 1, "the message after the last number");
 		expect(again.received).toEqual(stream.received.slice(listed.length));
 		again.socket.close(1000, "done");
+	});
+
+	test("D12: the queue events gives an ExternalEvent to the Petra of its account, and drops each other command", async () => {
+		const before = await waitForMessages(TEST_TOKENS.ownerA, 0, 0);
+		const last = before.at(-1)?.seq ?? 0;
+		const event = {
+			type: "ExternalEvent",
+			commandId: "d12-event",
+			at: AT,
+			eventId: "d12-event",
+			source: "whatsapp",
+			eventType: "message",
+			sender: "+966500000000",
+			payload: { text: "Hello" },
+		};
+		// A command of the owner in the queue of outside events is not trusted. It must not start a task.
+		const command = { ...ownerMessage("d12-owner", "Please read 1 file."), messageId: "m-d12-owner" };
+		const batch = createMessageBatch("events", [
+			{ id: "d12-1", timestamp: Date.parse(AT), attempts: 1, body: { accountId: "account-a", command: event } },
+			{ id: "d12-2", timestamp: Date.parse(AT), attempts: 1, body: { accountId: "account-a", command } },
+		]);
+		const ctx = createExecutionContext();
+		// The test env has the bindings of wrangler.jsonc. Its global type is empty, so the test gives it the type of the Worker.
+		await worker.queue(batch as MessageBatch<JobMessage>, env as unknown as Env);
+		const result = await getQueueResult(batch, ctx);
+		expect(result.explicitAcks.sort()).toEqual(["d12-1", "d12-2"]);
+		expect(result.retryMessages).toEqual([]);
+		// Petra handles a later command of the owner. When its reply is in the list, the dropped command had its turn.
+		await post("/v1/commands", TEST_TOKENS.ownerA, ownerMessage("d12-after", "What did the squad do today?"));
+		const messages = await settledMessages(TEST_TOKENS.ownerA, last, "I started the task d12-after.");
+		expect(JSON.stringify(messages)).not.toContain("d12-owner");
 	});
 
 	test("O3: the fixed demo runs, and each message that Petra sends passes its schema", async () => {

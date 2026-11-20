@@ -53,6 +53,7 @@
 		"demo:memory": "node scripts/demo-memory.mjs",
 		"demo:decisions": "node scripts/demo-decisions.mjs",
 		"demo:costs": "node scripts/demo-costs.mjs",
+		"demo:staging": "node scripts/demo.mjs",
 		"evals": "tsx apps/evals/src/main.ts"
 	},
 	"devDependencies": {

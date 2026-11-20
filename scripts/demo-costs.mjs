@@ -4,24 +4,12 @@
 // The super admin sets the unit prices. Account A runs two tasks: one reads a file, one refunds $15 under a
 // rule of $20. Then the super admin reads the view "account" for account A. The demo reads only through the API.
 // The first argument is the URL of the Worker. The default is http://localhost:8787.
-import { request, sendCommand, setUpAccount, waitForTaskEnd } from "./demo-client.mjs";
+import { PRICES, request, sendCommand, setUpAccount, waitForTaskEnd } from "./demo-client.mjs";
 
 const base = process.argv[2] ?? "http://localhost:8787";
 const at = new Date().toISOString();
 const run = Date.now();
 const call = (path, token, body) => request(base, path, token, body);
-
-// The prices are in millionths of a US dollar for one unit. A price for "1M ..." or "1k seconds" is for one
-// million units.
-const PRICES = [
-	{ provider: "test", model: "rule", unit: "1M input tokens", price: 3_000_000 },
-	{ provider: "test", model: "rule", unit: "1M output tokens", price: 15_000_000 },
-	{ provider: "test", model: "rule-check", unit: "call", price: 200 },
-	{ provider: "test", model: "fixed", unit: "call", price: 100 },
-	// The sandbox counts milliseconds. Its price is for 1000 seconds: 50 millionths of a US dollar for each second.
-	{ provider: "launcher", model: "", unit: "1k seconds", price: 50_000 },
-	{ provider: "test-payment", model: "", unit: "call", price: 300_000 },
-];
 
 await setUpAccount(call, at);
 

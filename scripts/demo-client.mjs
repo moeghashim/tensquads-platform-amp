@@ -56,3 +56,15 @@ export async function waitForTaskEnd(call, taskId) {
 		await sleep(50);
 	}
 }
+
+// The prices are in millionths of a US dollar for one unit. A price for "1M ..." or "1k seconds" is for one
+// million units.
+export const PRICES = [
+	{ provider: "test", model: "rule", unit: "1M input tokens", price: 3_000_000 },
+	{ provider: "test", model: "rule", unit: "1M output tokens", price: 15_000_000 },
+	{ provider: "test", model: "rule-check", unit: "call", price: 200 },
+	{ provider: "test", model: "fixed", unit: "call", price: 100 },
+	// The sandbox counts milliseconds. Its price is for 1000 seconds: 50 millionths of a US dollar for each second.
+	{ provider: "launcher", model: "", unit: "1k seconds", price: 50_000 },
+	{ provider: "test-payment", model: "", unit: "call", price: 300_000 },
+];

@@ -57,6 +57,12 @@
       "providerName": "Cloudflare",
       "serviceId": "workers:paid"
     },
+    "events": {
+      "livemode": true,
+      "name": "events",
+      "providerName": "Cloudflare",
+      "serviceId": "queues"
+    },
     "neon": {
       "livemode": true,
       "name": "neon",
@@ -87,6 +93,9 @@
         },
         {
           "resourceName": "cloudflare-plan"
+        },
+        {
+          "resourceName": "events"
         },
         {
           "resourceName": "neon"

@@ -893,3 +893,23 @@ Append-only learning log for commits and deploys. Add new entries only at the en
   - packages/petra/src/petra-model.ts
   - scripts/chat.mjs
   - docs/evidence/12-petra-real-model/chat.cast
+## 2026-11-20T00:07:03.429Z
+- Trigger: commit
+- Learning: Task 13: the staging demo is the same each time only when a proxy holds turn 2 until the owner message is in the inbox; sandbox time values are masked. The queue events gives only ExternalEvent, with origin not trusted. The Stripe CLI has no service for Durable Objects or cron; they come from wrangler.jsonc.
+- Context: feat(platform): run the fixed demo and the chat on staging
+- Branch: 13-staging-and-demo
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - .projects/state.json
+  - README.md
+  - apps/platform/src/index.ts
+  - apps/platform/src/petra-object.ts
+  - apps/platform/src/plugins/cloudflare.ts
+  - apps/platform/test-workers/worker.test.ts
+  - apps/platform/wrangler.jsonc
+  - package.json
+  - scripts/demo-client.mjs
+  - scripts/demo-costs.mjs
+  - docs/evidence/13-staging-and-demo
+  - scripts/demo.mjs
+  - scripts/test/setup.test.mjs

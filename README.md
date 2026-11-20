@@ -64,6 +64,8 @@ npm test
 
 To start the platform on one machine, run `npm run dev:platform`. It uses `DATABASE_URL` if you set it. Else it starts the Postgres of `docker-compose.yml`. It runs `db:setup`, writes `apps/platform/.dev.vars`, and starts the Worker in the local emulator and the launcher. Ctrl-C stops them. Then, in a second terminal, `npm run demo:platform` makes an account with an admin command, sends an owner message, and shows the reply of Petra on the stream and in the list.
 
+The fixed demo of PRD section 9 runs against staging with `npm run demo:staging -- <mode>`. The mode `fixed` runs the demo one time, `kill` kills the runner after the gate did the refund, and `twice` runs the demo on two new accounts and compares the two outputs. The script starts the launcher on your machine. It needs `STAGING_URL`, `STAGING_ADMIN_TOKEN`, `LAUNCHER_KEY` and `DATABASE_URL` (a connection to the staging database, for the decision records and the cost rows), and the staging Worker needs `EVAL_OWNERS=yes` while it runs.
+
 Before you hand off or ship, also run:
 
 ```bash
