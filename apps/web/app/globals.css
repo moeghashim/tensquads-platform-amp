@@ -209,6 +209,23 @@ body {
 	color: #ff7b72;
 }
 
+/* The internal steps of Petra for each command. */
+.activity-model {
+	color: #d2a8ff;
+}
+
+.activity-tool {
+	color: #ffa657;
+}
+
+.activity-decision {
+	color: #56d4dd;
+}
+
+.activity-cost {
+	color: #8b949e;
+}
+
 @media (max-width: 960px) {
 	.owner-layout {
 		grid-template-columns: 1fr;

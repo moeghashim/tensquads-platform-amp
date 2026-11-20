@@ -14,6 +14,7 @@ import {
 	watchTasks,
 } from "./activity";
 import { mergeMessages, type WorkerMessage } from "./owner-messages";
+import { type PetraStep, type StepWatch, stepUpdate, watchCommand, watchedCommands } from "./petra-steps";
 import { useMountEffect } from "./use-mount-effect";
 
 const POLL_MS = 1500;
@@ -50,17 +51,34 @@ async function readTask(token: string, taskId: string): Promise<TaskState | unde
 	}
 }
 
+// The internal steps of Petra for one command, or nothing when the call failed.
+async function readSteps(token: string, commandId: string): Promise<PetraStep[] | undefined> {
+	try {
+		const response = await workerCall(token, `v1/commands/${encodeURIComponent(commandId)}/steps`);
+		return response.ok ? ((await response.json()) as { steps: PetraStep[] }).steps : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 const MAX_LINES = 300;
 const clock = () => new Date().toISOString().slice(11, 23);
 
+interface SendAnswer {
+	ok: boolean;
+	status: string;
+	commandId: string;
+}
+
 // One command with its id and time. A failed network call is sent again with the same command id.
-async function sendCommand(token: string, body: PlatformOwnerCommandBody): Promise<{ ok: boolean; status: string }> {
-	const command = withCommandMeta(body, { commandId: crypto.randomUUID(), at: new Date().toISOString() });
+async function sendCommand(token: string, body: PlatformOwnerCommandBody): Promise<SendAnswer> {
+	const commandId = crypto.randomUUID();
+	const command = withCommandMeta(body, { commandId, at: new Date().toISOString() });
 	for (let attempt = 0; attempt < 2; attempt += 1) {
 		const response = await workerCall(token, "v1/commands", command).catch(() => undefined);
-		if (response) return { ok: response.ok, status: String(response.status) };
+		if (response) return { ok: response.ok, status: String(response.status), commandId };
 	}
-	return { ok: false, status: "network error" };
+	return { ok: false, status: "network error", commandId };
 }
 
 function scrollToEnd() {
@@ -81,13 +99,15 @@ export function useOwnerSession() {
 	const [activity, setActivity] = useState<ActivityLine[]>([]);
 	const sentAt = useRef<number | null>(null);
 	const watched = useRef<TaskWatch>(new Map());
+	// The commands that this page sent, for the internal steps of Petra.
+	const commands = useRef<StepWatch>(new Map());
 
 	const lineId = useRef(0);
 	const loaded = useRef(false);
 
-	function log(kind: ActivityLine["kind"], text: string) {
+	function log(kind: ActivityLine["kind"], text: string, at = clock()) {
 		lineId.current += 1;
-		const line = { id: lineId.current, at: clock(), kind, text };
+		const line = { id: lineId.current, at, kind, text };
 		setActivity((lines) => [...lines.slice(-(MAX_LINES - 1)), line]);
 	}
 
@@ -96,6 +116,16 @@ export function useOwnerSession() {
 		for (const taskId of openWatched(watched.current)) {
 			const line = taskUpdate(watched.current, await readTask(current, taskId));
 			if (line) log("task", line);
+		}
+	}
+
+	// Reads the steps of each watched command, and writes a line for each new step.
+	async function pollSteps(current: string) {
+		for (const commandId of watchedCommands(commands.current, Date.now())) {
+			const steps = await readSteps(current, commandId);
+			if (!steps) continue;
+			for (const line of stepUpdate(commands.current, commandId, steps, Date.now()))
+				log(line.kind, line.text, line.at);
 		}
 	}
 
@@ -112,6 +142,7 @@ export function useOwnerSession() {
 		const fresh = await readMessages(current, lastSeq.current);
 		if (fresh === "unauthorized") return signOut("This token is not valid.");
 		await pollTasks(current);
+		await pollSteps(current);
 		if (!fresh) return;
 		noteArrival(fresh);
 		const last = fresh.at(-1);
@@ -134,6 +165,7 @@ export function useOwnerSession() {
 		setSent([]);
 		setActivity([]);
 		watched.current.clear();
+		commands.current.clear();
 		loaded.current = false;
 		setError(null);
 		setToken(next);
@@ -168,10 +200,12 @@ export function useOwnerSession() {
 		const answer = await sendCommand(token, body);
 		const result = sendResultLine(answer, Date.now() - sentAt.current);
 		log(result.kind, result.text);
-		if (!answer.ok) {
-			setWaitingFrom(null);
-			setError("The message did not reach Petra. Try again.");
+		if (answer.ok) {
+			watchCommand(commands.current, answer.commandId, Date.now());
+			return;
 		}
+		setWaitingFrom(null);
+		setError("The message did not reach Petra. Try again.");
 	}
 
 	return { token, messages, sent, activity, thinking: waitingFrom !== null, error, signIn, signOut, send };

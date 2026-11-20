@@ -80,9 +80,9 @@ export async function openStream(token: string, after: number): Promise<{ socket
 	return { socket, received };
 }
 
-export async function until(check: () => boolean, what: string): Promise<void> {
+export async function until(check: () => boolean | Promise<boolean>, what: string): Promise<void> {
 	for (let i = 0; i < 100; i++) {
-		if (check()) return;
+		if (await check()) return;
 		await new Promise((resolve) => setTimeout(resolve, 50));
 	}
 	throw new Error(`Timed out: ${what}`);

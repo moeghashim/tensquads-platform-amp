@@ -13,6 +13,14 @@ import {
 	watchTasks,
 } from "../lib/activity.js";
 import { mergeMessages, openQuestion, ownerView, placeSent, type WorkerMessage } from "../lib/owner-messages.js";
+import {
+	type PetraStep,
+	type StepWatch,
+	stepLine,
+	stepUpdate,
+	watchCommand,
+	watchedCommands,
+} from "../lib/petra-steps.js";
 
 const AT = "2026-11-20T10:00:00.000Z";
 const reply = (seq: number, text = "Hello"): WorkerMessage => ({ seq, at: AT, type: "reply", text });
@@ -196,4 +204,123 @@ test("a watched task gives a line only when its state changes, and is not read a
 		{ kind: "info", text: "signed in · 2 earlier messages" },
 	]);
 	assert.equal(arrivalLines([reply(3)], false, 1200)[0]?.text, "petra → reply #3 (+1.2 s)");
+});
+
+test("the proxy forwards the steps of one command, and refuses each other path under a command", async (t) => {
+	const urls: string[] = [];
+	t.mock.method(globalThis, "fetch", async (url: string) => {
+		urls.push(url);
+		return Response.json({ commandId: "c-1", steps: [] });
+	});
+	const context = (path: string[]) => ({ params: Promise.resolve({ path }) });
+	const headers = { authorization: "Bearer owner-token" };
+	const steps = await GET(
+		new Request("https://page.test/api/worker/v1/commands/c-1/steps", { headers }),
+		context(["v1", "commands", "c-1", "steps"]),
+	);
+	assert.equal(steps.status, 200);
+	for (const path of [
+		["v1", "commands", "c-1"],
+		["v1", "commands", "c-1", "trail"],
+		["v1", "commands", "c-1", "steps", "x"],
+	]) {
+		const refused = await GET(
+			new Request(`https://page.test/api/worker/${path.join("/")}`, { headers }),
+			context(path),
+		);
+		assert.equal(refused.status, 404, path.join("/"));
+	}
+	assert.deepEqual(
+		urls.map((url) => new URL(url).pathname),
+		["/v1/commands/c-1/steps"],
+	);
+});
+
+const T = (ms: number) => new Date(Date.parse(AT) + ms).toISOString();
+const modelStep: PetraStep = {
+	kind: "model",
+	at: T(0),
+	provider: "openai",
+	model: "gpt-6.2-sol",
+	ms: 1840,
+	inputTokens: 3120,
+	outputTokens: 42,
+	tools: ["start_task"],
+	failed: false,
+};
+const decisionStep: PetraStep = {
+	kind: "decision",
+	at: T(1900),
+	point: "message-for-task",
+	decider: "model-decider",
+	options: ["t-1", "new task"],
+	answer: "new task",
+	probability: 0.93,
+	used: true,
+	shadow: false,
+	ms: 610,
+};
+const costStep: PetraStep = {
+	kind: "cost",
+	at: T(1850),
+	costKind: "large model",
+	provider: "openai",
+	model: "gpt-6.2-sol",
+	units: 3120,
+	unit: "1M input tokens",
+	amount: 3900,
+};
+
+test("each internal step of Petra is one line with its data", () => {
+	assert.equal(
+		stepLine(modelStep).text,
+		"petra model openai/gpt-6.2-sol 1840 ms · 3120 in / 42 out tokens → start_task",
+	);
+	assert.equal(
+		stepLine({ ...modelStep, tools: [], failed: true, ms: 60000, inputTokens: 0, outputTokens: 0 }).text,
+		"petra model openai/gpt-6.2-sol failed after 60000 ms",
+	);
+	assert.equal(stepLine({ ...modelStep, tools: [] }).text.endsWith("→ text"), true);
+	assert.equal(
+		stepLine({ kind: "tool", at: T(1), tool: "start_task", ms: 95, failed: false }).text,
+		"petra tool start_task 95 ms",
+	);
+	assert.equal(
+		stepLine(decisionStep).text,
+		"decider model-decider · message-for-task [t-1 | new task] → new task p=0.93 · 610 ms",
+	);
+	// A choice of the code has no options, no probability and no time. A shadow answer is never used.
+	assert.equal(
+		stepLine({
+			...decisionStep,
+			decider: "code",
+			point: "stop",
+			options: [],
+			probability: null,
+			ms: null,
+			answer: "t-1",
+		}).text,
+		"decider code · stop → t-1",
+	);
+	assert.equal(stepLine({ ...decisionStep, shadow: true, used: false }).text.endsWith("(shadow)"), true);
+	assert.equal(stepLine(costStep).text, "cost large model openai/gpt-6.2-sol 3120 × 1M input tokens = $0.003900");
+	assert.equal(stepLine(costStep).at, "10:00:01.850");
+});
+
+test("a watched command gives each step one time, also when a later read puts it in a new place, and stops when quiet", () => {
+	const watch: StepWatch = new Map();
+	watchCommand(watch, "c-1", 0);
+	assert.deepEqual(watchedCommands(watch, 0), ["c-1"]);
+	assert.equal(stepUpdate(watch, "c-1", [modelStep, decisionStep], 1000).length, 2);
+	// The cost row comes later, and sorts between the two earlier steps. Only the cost row is new.
+	const next = stepUpdate(watch, "c-1", [modelStep, costStep, decisionStep], 2000);
+	assert.deepEqual(
+		next.map((line) => line.kind),
+		["cost"],
+	);
+	assert.equal(stepUpdate(watch, "c-1", [modelStep, costStep, decisionStep], 3000).length, 0);
+	// 30 s with no new step: the page stops reading the command. A command with no step yet waits the same time.
+	assert.deepEqual(watchedCommands(watch, 31_999), ["c-1"]);
+	assert.deepEqual(watchedCommands(watch, 32_001), []);
+	assert.equal(watch.size, 0);
 });

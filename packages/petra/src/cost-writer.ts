@@ -1,6 +1,7 @@
 // The cost writer and its reader (docs/ARCHITECTURE.md, sections 7.2 and 7.6, requirements S1 to S3 and S8).
 // Only Petra uses it. Each method is one short transaction that names the account.
 // The costs package (packages/costs) holds the rules. This module only has the SQL.
+import type { CommandStep } from "@tensquads/contracts";
 import type { Database, Transaction } from "@tensquads/core";
 
 // One cost row. The shape is the shape of NewCost in packages/costs.
@@ -32,6 +33,8 @@ export interface CostReader {
 	unitPrice(price: { provider: string; model: string; unit: string; at: string }): Promise<number | undefined>;
 	// The sum of the cost rows of the task, over all its attempts. No column holds it (requirement S3).
 	taskCost(taskId: string): Promise<number>;
+	// The cost rows of one command (key "cmd/{commandId}/..."), for the owner read of its steps.
+	commandCosts(commandId: string): Promise<Extract<CommandStep, { kind: "cost" }>[]>;
 }
 
 export function costWriter(database: Database, accountId: string): CostWriter & CostReader {
@@ -85,6 +88,32 @@ export function costWriter(database: Database, accountId: string): CostWriter & 
 					[taskId],
 				);
 				return Number(rows[0]?.amount ?? 0);
+			}),
+		commandCosts: (commandId) =>
+			run(async (tx) => {
+				const rows = await tx.query<{
+					kind: string;
+					provider: string | null;
+					model: string | null;
+					units: string;
+					unit: string;
+					amount: string;
+					at: Date;
+				}>(
+					`SELECT kind, provider, model, units, unit, amount, at FROM costs
+					 WHERE starts_with(source_ref, $1) ORDER BY at, source_ref`,
+					[`cmd/${commandId}/`],
+				);
+				return rows.map((row) => ({
+					kind: "cost" as const,
+					at: row.at.toISOString(),
+					costKind: row.kind,
+					provider: row.provider ?? "",
+					model: row.model ?? "",
+					units: Number(row.units),
+					unit: row.unit,
+					amount: Number(row.amount),
+				}));
 			}),
 	};
 }

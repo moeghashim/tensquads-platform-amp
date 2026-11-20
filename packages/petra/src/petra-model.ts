@@ -5,6 +5,7 @@
 // puts them on the port, so the loop, the decider and the night job each get them one time.
 import type { Model, ModelAnswer, ModelMessage, ModelToolCall, ModelToolDefinition } from "@tensquads/core";
 
+import type { RunStep, StepLog } from "./command-steps.js";
 import { petraInstructions } from "./instructions.js";
 import { answerLanguage, type Language, languageInstruction } from "./language.js";
 import { type CommandCosts, type ConversationInput, conversationInput } from "./petra.js";
@@ -15,6 +16,8 @@ export interface PetraCompletionDeps {
 	model: Model;
 	tools: readonly ModelToolDefinition[];
 	costs: Pick<CommandCosts, "modelCall">;
+	// Each model call of a command is one step for the owner (GET /v1/commands/{commandId}/steps).
+	steps: Pick<StepLog, "add">;
 	// The language of the account, for a message that has no Latin and no Arabic letters.
 	accountLanguage: Language;
 	log: (line: string) => void;
@@ -134,18 +137,32 @@ export function petraCompletion(
 	// One call of the limited port. The cost write comes after the call and outside the try, so an error of the
 	// cost write never causes a second paid call.
 	async function call(messages: ModelMessage[], input: ConversationInput | undefined) {
-		let answer: ModelAnswer;
+		const started = Date.now();
+		let answer: ModelAnswer | undefined;
 		try {
 			answer = await deps.model.complete({ messages, tools, toolDefinitions: deps.tools });
 		} catch {
 			// The limited port wrote a log line for each failure.
-			return undefined;
 		}
 		// A model call in a command has the key of the command. A turn with no command has the cause "history"
 		// (section 7.1, requirement N4).
 		const cause = input ? `cmd/${input.commandId}` : HISTORY_CAUSE;
-		await deps.costs.modelCall({ cause, taskId: null }, answer);
+		if (answer) await deps.costs.modelCall({ cause, taskId: null }, answer);
+		if (input) await deps.steps.add(input.commandId, modelStep(started, answer));
 		return answer;
+	}
+
+	// The step of one call. The time includes the second try. A failed call has the names of the port and no tokens.
+	function modelStep(started: number, answer: ModelAnswer | undefined): RunStep {
+		const base = { kind: "model" as const, at: new Date(started).toISOString(), ms: Date.now() - started };
+		if (!answer) {
+			const { provider, model } = deps.model.id ?? { provider: "unknown", model: "unknown" };
+			return { ...base, provider, model, inputTokens: 0, outputTokens: 0, tools: [], failed: true };
+		}
+		const { provider, model, usage, toolCalls } = answer;
+		const { inputTokens, outputTokens } = usage;
+		const tools = toolCalls.map((item) => item.name);
+		return { ...base, provider, model, inputTokens, outputTokens, tools, failed: false };
 	}
 
 	return async ({ messages }) => {

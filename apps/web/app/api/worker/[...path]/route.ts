@@ -3,8 +3,8 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 const WORKER_URL = process.env.PLATFORM_URL ?? "https://tensquads-platform.moe-678.workers.dev";
-// The three owner calls: send a command, read the messages, read the state of one task.
-const ALLOWED = /^v1\/(commands|messages|tasks\/[^/]+)$/;
+// The owner calls: send a command, read the messages, read the state of one task, read the steps of one command.
+const ALLOWED = /^v1\/(commands|messages|tasks\/[^/]+|commands\/[^/]+\/steps)$/;
 
 // On Cloudflare, the service binding PLATFORM. Locally and in the tests, there is no Cloudflare context: plain fetch.
 function platformFetch(): typeof fetch {

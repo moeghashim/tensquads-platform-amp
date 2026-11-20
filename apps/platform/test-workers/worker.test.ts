@@ -5,6 +5,7 @@ import { TEST_TOKENS } from "@tensquads/adapters-test";
 import {
 	acceptedAnswer,
 	apiError,
+	commandStepsAnswer,
 	OWNER_MESSAGE_TYPES,
 	ownerMessage as ownerMessageSchema,
 } from "@tensquads/contracts";
@@ -74,6 +75,38 @@ describe("the interface of the Platform Worker", () => {
 		}
 		const unauthorized = (await (await call("/v1/messages", undefined)).json()) as { message: string };
 		expect(unauthorized.message).toBe("Unauthorized.");
+	});
+
+	test("W1 and W4: the steps of a command give the model calls, the tool runs, the decisions and the costs of the account only", async () => {
+		const text = "What did the squad do today?";
+		await post("/v1/commands", TEST_TOKENS.ownerA, ownerMessage("steps-1", text));
+		await settledMessages(TEST_TOKENS.ownerA, 0, "I started the task steps-1.");
+		let body = "";
+		await until(async () => {
+			body = await (await call("/v1/commands/steps-1/steps", TEST_TOKENS.ownerA)).text();
+			return body.includes('"tool":"start_task"') && body.includes('"kind":"cost"');
+		}, "the steps of the command");
+		const answer = commandStepsAnswer.parse(JSON.parse(body));
+		expect(answer.commandId).toBe("steps-1");
+		const kinds = new Set(answer.steps.map((step) => step.kind));
+		expect([...kinds].sort()).toEqual(["cost", "decision", "model", "tool"]);
+		const times = answer.steps.map((step) => step.at);
+		expect(times).toEqual([...times].sort());
+		const model = answer.steps.find((step) => step.kind === "model");
+		expect(model).toMatchObject({ provider: "test", tools: ["start_task"], failed: false });
+		expect(answer.steps.filter((step) => step.kind === "decision").map((step) => step.point)).toContain(
+			"request-clear",
+		);
+		// A step has no text of the owner message.
+		expect(body).not.toContain(text);
+
+		// A command with no step gives an empty list. Another account never sees the steps of account A.
+		const none = await call("/v1/commands/no-such-command/steps", TEST_TOKENS.ownerA);
+		expect(await none.json()).toEqual({ commandId: "no-such-command", steps: [] });
+		const other = await call("/v1/commands/steps-1/steps", TEST_TOKENS.ownerB);
+		expect(await other.text()).not.toContain("start_task");
+		// A super admin cannot use the owner call (requirement S8).
+		expect((await call("/v1/commands/steps-1/steps", TEST_TOKENS.superAdmin)).status).toBe(403);
 	});
 
 	test("W3: the list and the stream give the same messages in the same sequence, and a client continues from its last number", async () => {

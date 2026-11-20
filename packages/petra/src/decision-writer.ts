@@ -1,6 +1,7 @@
 // The decision writer and its reader (docs/ARCHITECTURE.md, sections 4.7 and 7.2): the tables decisions and
 // decision_outcomes. Only Petra uses it. Each method is one short transaction that names the account.
 // The decisions package (packages/decisions) gets these methods as its store. This package does not import it (C2).
+import type { CommandStep } from "@tensquads/contracts";
 import type { Database, DecisionRecord, Transaction } from "@tensquads/core";
 
 // What the owner did with a thing that a decision led to (requirement Q6).
@@ -27,6 +28,8 @@ export interface DecisionReader {
 	// The message of the customer that caused the task: the newest message in from the customer of the task,
 	// at or before the start of the task. Undefined for a task with no customer (section 7.8).
 	customerMessage(taskId: string): Promise<{ seq: number; text: string } | undefined>;
+	// The records of one command, for the owner read of its steps. A record has no text of a message (Q3).
+	commandDecisions(commandId: string): Promise<Extract<CommandStep, { kind: "decision" }>[]>;
 }
 
 interface DecisionDbRow {
@@ -107,6 +110,29 @@ export function decisionWriter(database: Database, accountId: string): DecisionW
 					[sourceRef, decider],
 				);
 				return rows[0] ? toRecord(rows[0]) : undefined;
+			}),
+		commandDecisions: (commandId) =>
+			run(async (tx) => {
+				const rows = await tx.query<DecisionDbRow>(
+					`SELECT source_ref, decider, task_id, point, message_seq, options, answer, probability, shadow, used, ms, at
+					 FROM decisions WHERE starts_with(source_ref, $1) ORDER BY at, source_ref, decider`,
+					[`cmd/${commandId}/`],
+				);
+				return rows.map((row) => {
+					const { point, decider, options, answer, probability, used, shadow, ms, at } = toRecord(row);
+					return {
+						kind: "decision" as const,
+						at,
+						point,
+						decider,
+						options: [...options],
+						answer,
+						probability,
+						used,
+						shadow,
+						ms,
+					};
+				});
 			}),
 		customerMessage: (taskId) =>
 			run(async (tx) => {

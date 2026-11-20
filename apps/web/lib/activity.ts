@@ -4,7 +4,8 @@ import type { WorkerMessage } from "./owner-messages";
 export interface ActivityLine {
 	id: number;
 	at: string;
-	kind: "send" | "recv" | "task" | "info" | "error";
+	// The internal steps of Petra have the kind of the step (petra-steps.ts).
+	kind: "send" | "recv" | "task" | "info" | "error" | "model" | "tool" | "decision" | "cost";
 	text: string;
 }
 

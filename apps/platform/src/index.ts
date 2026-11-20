@@ -102,6 +102,14 @@ const OWNER_ROUTES: readonly OwnerRoute[] = [
 	},
 	{
 		method: "GET",
+		path: /^\/v1\/commands\/[^/]+\/steps$/,
+		handle: (_request, petra, url) => {
+			const commandId = decodeURIComponent(url.pathname.split("/")[3] ?? "");
+			return petra.fetch(`https://petra/steps?${new URLSearchParams({ commandId })}`);
+		},
+	},
+	{
+		method: "GET",
 		path: /^\/v1\/tasks\/[^/]+$/,
 		handle: (_request, petra, url) => petra.fetch(`https://petra${url.pathname.slice(3)}`),
 	},
