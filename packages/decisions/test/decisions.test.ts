@@ -116,6 +116,66 @@ test("Q2: the three questions of a refund go to the decider in one call, each wi
 	);
 });
 
+test("Q2: answers that the model of Petra gave are recorded under the decider petra-model, with no decider call", async () => {
+	const store = memoryStore();
+	const decider = deciderOf("fixed", sure);
+	const asks: DecisionAsk[] = [
+		{
+			sourceRef: "cmd/c1/request-clear",
+			point: "request-clear",
+			taskId: null,
+			messageSeq: 3,
+			message: "Plan my menu",
+		},
+		{
+			sourceRef: "cmd/c1/which-bot",
+			point: "which-bot",
+			taskId: null,
+			messageSeq: 3,
+			message: "Plan my menu",
+			options: ["test-bot", "menu-bot"],
+		},
+	];
+	const given = { decider: "petra-model", answers: { "request-clear": "yes", "which-bot": "menu-bot" } };
+	const verdicts = await decisions({ store, decider, shadow: null, timeoutMs: 1000, now: () => AT }).ask(asks, given);
+	assert.equal(decider.calls.length, 0);
+	assert.deepEqual(
+		verdicts.map((verdict) => [verdict.sure, verdict.answer]),
+		[
+			[true, "yes"],
+			[true, "menu-bot"],
+		],
+	);
+	assert.deepEqual(
+		store.rows.map((row) => [row.sourceRef, row.decider, row.answer, row.probability, row.used]),
+		[
+			["cmd/c1/request-clear", "petra-model", "yes", 1, true],
+			["cmd/c1/which-bot", "petra-model", "menu-bot", 1, true],
+		],
+	);
+});
+
+test("Q4: an answer of the model of Petra that is not an option is not used", async () => {
+	const store = memoryStore();
+	const decider = deciderOf("fixed", sure);
+	const ask: DecisionAsk = {
+		sourceRef: "cmd/c2/which-bot",
+		point: "which-bot",
+		taskId: null,
+		messageSeq: 4,
+		message: "Plan my menu",
+		options: ["test-bot"],
+	};
+	const given = { decider: "petra-model", answers: { "which-bot": "admin-bot" } };
+	const [verdict] = await decisions({ store, decider, shadow: null, timeoutMs: 1000, now: () => AT }).ask(
+		[ask],
+		given,
+	);
+	assert.equal(decider.calls.length, 0);
+	assert.deepEqual([verdict?.sure, verdict?.why], [false, "not valid"]);
+	assert.equal(store.rows[0]?.used, false);
+});
+
 test("Q3: each answer is one record with its point, message id, options, answer, probability, decider, time, used, shadow and ms, and no text of the message; a second run does not ask again", async () => {
 	const store = memoryStore();
 	const decider = deciderOf("fixed", sure);

@@ -337,6 +337,7 @@ A decision point is a place where the system asks a small question about the mea
 - All decision points are in one list, in the `decisions` package. Each one has an id, a question, a type (yes or no, choice, score), its options, the harm if wrong, a level, and the path below the level.
 - A **decider** answers. It is a plug-in behind the decider port. The first decider asks the model port. The decision model is Jev (decision D25). It comes later, as a second decider, in shadow mode first.
 - One call can have several questions. Each answer has a probability.
+- **The bot that Petra names.** When the model of Petra calls `start_task` with a bot of the squad, its call already answered "is the request clear" and "which bot". The decider is not called. The two answers are recorded with the decider `petra-model` and the probability 1. A bot that is not in the squad is dropped, and the decider answers as before. This saves one model call when a task starts (decision of Moe, 2026-11-20).
 - **The decider reads, and the code decides.** Our code compares the probability with the level, and applies the rule and the limit of the owner. An answer of a decider alone never starts an action with money or a public action.
 - Below the level, or after an answer that is not valid, an error or a timeout, the question goes to Petra, then to the owner.
 - **Shadow mode:** a setting names a second decider. It gets the same questions. The system records its answers and never uses them.
