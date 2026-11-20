@@ -68,6 +68,16 @@ function loginUrl(databaseUrl: string, user: string, password: string): string {
 	return url.toString();
 }
 
+// Wrangler connects each Hyperdrive binding of the Worker to the test database, with its login user.
+function hyperdriveLocalStrings(databaseUrl: string, password: string): Record<string, string> {
+	const prefix = "CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_";
+	return {
+		[`${prefix}PETRA_HYPERDRIVE`]: loginUrl(databaseUrl, "ts_petra_login", password),
+		[`${prefix}PLATFORM_HYPERDRIVE`]: loginUrl(databaseUrl, "ts_platform_login", password),
+		[`${prefix}ADMIN_VIEWS_HYPERDRIVE`]: loginUrl(databaseUrl, "ts_admin_views_login", password),
+	};
+}
+
 function readBody(request: IncomingMessage): Promise<string> {
 	return new Promise((resolve) => {
 		let body = "";
@@ -122,17 +132,7 @@ export class LocalPath {
 		spawnSync("npm", ["run", "build", "-w", "@tensquads/launcher"], { cwd: ROOT, stdio: "ignore" });
 		writeFileSync(this.pidFile, "");
 		const envFile = join(this.dir, "worker.env");
-		writeFileSync(
-			envFile,
-			[
-				`PETRA_DATABASE_URL=${loginUrl(databaseUrl, "ts_petra_login", password)}`,
-				`PLATFORM_DATABASE_URL=${loginUrl(databaseUrl, "ts_platform_login", password)}`,
-				`ADMIN_VIEWS_DATABASE_URL=${loginUrl(databaseUrl, "ts_admin_views_login", password)}`,
-				`PASS_KEY=${PASS_KEY}`,
-				`LAUNCHER_KEY=${LAUNCHER_KEY}`,
-				"",
-			].join("\n"),
-		);
+		writeFileSync(envFile, [`PASS_KEY=${PASS_KEY}`, `LAUNCHER_KEY=${LAUNCHER_KEY}`, ""].join("\n"));
 		const workerPort = await freePort();
 		this.workerUrl = `http://127.0.0.1:${workerPort}`;
 		const vars = { SILENT_MS: "30000", ...this.options.vars };
@@ -153,7 +153,12 @@ export class LocalPath {
 				...Object.entries(vars).map(([name, value]) => `${name}:${value}`),
 				"--show-interactive-dev-session=false",
 			],
-			{ cwd: join(ROOT, "apps", "platform"), stdio: ["ignore", "pipe", "pipe"], detached: true },
+			{
+				cwd: join(ROOT, "apps", "platform"),
+				stdio: ["ignore", "pipe", "pipe"],
+				detached: true,
+				env: { ...process.env, ...hyperdriveLocalStrings(databaseUrl, password) },
+			},
 		);
 		for (const stream of [this.worker.stdout, this.worker.stderr]) {
 			stream?.on("data", (chunk: Buffer) => {

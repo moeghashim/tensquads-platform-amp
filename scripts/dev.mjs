@@ -38,9 +38,18 @@ const env = {
 	...process.env,
 	DATABASE_URL: databaseUrl,
 	DB_USER_PASSWORD: password,
-	PETRA_DATABASE_URL: loginUrl(databaseUrl, "ts_petra_login", password),
-	PLATFORM_DATABASE_URL: loginUrl(databaseUrl, "ts_platform_login", password),
-	ADMIN_VIEWS_DATABASE_URL: loginUrl(databaseUrl, "ts_admin_views_login", password),
+	// Wrangler connects each Hyperdrive binding of the Worker to the local Postgres, with its login user.
+	CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_PETRA_HYPERDRIVE: loginUrl(databaseUrl, "ts_petra_login", password),
+	CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_PLATFORM_HYPERDRIVE: loginUrl(
+		databaseUrl,
+		"ts_platform_login",
+		password,
+	),
+	CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_ADMIN_VIEWS_HYPERDRIVE: loginUrl(
+		databaseUrl,
+		"ts_admin_views_login",
+		password,
+	),
 	// The key that signs a pass, and the key of the launcher. The local values are not secret.
 	PASS_KEY: process.env.PASS_KEY ?? "local-pass-key",
 	LAUNCHER_KEY: process.env.LAUNCHER_KEY ?? "local-launcher-key",
@@ -51,9 +60,7 @@ const env = {
 run("npm", ["run", "db:setup"], env);
 
 // Wrangler reads the local values of the Worker from .dev.vars. Git ignores this file.
-const devVars = ["PETRA_DATABASE_URL", "PLATFORM_DATABASE_URL", "ADMIN_VIEWS_DATABASE_URL", "PASS_KEY", "LAUNCHER_KEY"]
-	.map((name) => `${name}=${JSON.stringify(env[name])}`)
-	.join("\n");
+const devVars = ["PASS_KEY", "LAUNCHER_KEY"].map((name) => `${name}=${JSON.stringify(env[name])}`).join("\n");
 writeFileSync(join(ROOT, "apps/platform/.dev.vars"), `${devVars}\n`);
 
 // The Worker bundles @tensquads/core from its dist folder, so the packages are built first.
