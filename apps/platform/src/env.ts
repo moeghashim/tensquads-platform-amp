@@ -1,4 +1,4 @@
-// The bindings of the Platform Worker (wrangler.jsonc). The database URLs and the two keys are secrets.
+// The bindings of the Platform Worker (wrangler.jsonc). The two keys are secrets.
 import type { Principal, SqlConnections } from "@tensquads/core";
 import type { JobMessage } from "@tensquads/petra";
 
@@ -17,9 +17,11 @@ export interface Env extends EvalVars, ModelVars {
 	FILES: R2Bucket;
 	// The producer of the queue "jobs". The same Worker is its consumer.
 	JOBS: Queue<JobMessage>;
-	PETRA_DATABASE_URL?: string;
-	PLATFORM_DATABASE_URL?: string;
-	ADMIN_VIEWS_DATABASE_URL?: string;
+	// One Hyperdrive config for each login user. Locally, wrangler connects each one to its
+	// CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_{binding} (scripts/dev.mjs).
+	PETRA_HYPERDRIVE: Hyperdrive;
+	PLATFORM_HYPERDRIVE: Hyperdrive;
+	ADMIN_VIEWS_HYPERDRIVE: Hyperdrive;
 	// The key that signs a pass, and the key of the launcher. Both are secrets.
 	PASS_KEY?: string;
 	LAUNCHER_KEY?: string;
@@ -139,11 +141,14 @@ function shadowDeciderOf(value = ""): ShadowDecider {
 
 // Petra gets only her own connection. The Platform object gets its two connections.
 export function petraConnections(env: Env): SqlConnections {
-	return { petra: env.PETRA_DATABASE_URL };
+	return { petra: env.PETRA_HYPERDRIVE.connectionString };
 }
 
 export function platformConnections(env: Env): SqlConnections {
-	return { platform: env.PLATFORM_DATABASE_URL, adminViews: env.ADMIN_VIEWS_DATABASE_URL };
+	return {
+		platform: env.PLATFORM_HYPERDRIVE.connectionString,
+		adminViews: env.ADMIN_VIEWS_HYPERDRIVE.connectionString,
+	};
 }
 
 // Each error has one form (requirement W4). It never has a stack trace or a key.

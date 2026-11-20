@@ -6,6 +6,10 @@ import { defineConfig } from "vitest/config";
 import { loginConnections } from "./test/login-urls.js";
 
 const connections = loginConnections();
+// Wrangler reads wrangler.jsonc and connects each Hyperdrive binding to the test database, with its login user.
+process.env.CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_PETRA_HYPERDRIVE = connections.petra;
+process.env.CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_PLATFORM_HYPERDRIVE = connections.platform;
+process.env.CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_ADMIN_VIEWS_HYPERDRIVE = connections.adminViews;
 
 export default defineConfig({
 	plugins: [
@@ -13,9 +17,6 @@ export default defineConfig({
 			wrangler: { configPath: "./wrangler.jsonc" },
 			miniflare: {
 				bindings: {
-					PETRA_DATABASE_URL: connections.petra,
-					PLATFORM_DATABASE_URL: connections.platform,
-					ADMIN_VIEWS_DATABASE_URL: connections.adminViews,
 					// The two keys are secrets. The tests use fixed values. A short take wait keeps the tests fast.
 					PASS_KEY: "test-pass-key",
 					LAUNCHER_KEY: "test-launcher-key",

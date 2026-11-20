@@ -63,6 +63,36 @@
       "providerName": "Cloudflare",
       "serviceId": "queues"
     },
+    "hd-admin-views": {
+      "livemode": true,
+      "name": "hd-admin-views",
+      "providerName": "Cloudflare",
+      "serviceId": "hyperdrive"
+    },
+    "hd-petra": {
+      "livemode": true,
+      "name": "hd-petra",
+      "providerName": "Cloudflare",
+      "serviceId": "hyperdrive"
+    },
+    "hd-platform": {
+      "livemode": true,
+      "name": "hd-platform",
+      "providerName": "Cloudflare",
+      "serviceId": "hyperdrive"
+    },
+    "journals": {
+      "livemode": true,
+      "name": "journals",
+      "providerName": "Cloudflare",
+      "serviceId": "r2:bucket"
+    },
+    "journals-2": {
+      "livemode": true,
+      "name": "journals-2",
+      "providerName": "Cloudflare",
+      "serviceId": "r2:bucket"
+    },
     "neon": {
       "livemode": true,
       "name": "neon",
@@ -96,6 +126,15 @@
         },
         {
           "resourceName": "events"
+        },
+        {
+          "resourceName": "hd-admin-views"
+        },
+        {
+          "resourceName": "hd-petra"
+        },
+        {
+          "resourceName": "hd-platform"
         },
         {
           "resourceName": "neon"

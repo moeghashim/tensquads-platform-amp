@@ -951,6 +951,20 @@ Append-only learning log for commits and deploys. Add new entries only at the en
 - Changed Paths:
   - packages/core/src/lib/sql-database.ts
   - packages/adapters-postgres/test/database.test.ts
+## 2026-11-20T08:48:28.179Z
+- Trigger: commit
+- Learning: Each transaction opened a new connection to Neon, about 90 ms. Hyperdrive takes one login user for each config, so the three roles need three configs. Locally, wrangler needs CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_{binding} for each binding, so the dev script, the Workers tests and the full-path evals set it. After ALTER ROLE on Neon, the old password still worked from Cloudflare for some minutes.
+- Context: perf(platform): reach the staging database through Hyperdrive
+- Branch: speed-hyperdrive
+- Actor: Moe Ghashim <moe@10claws.com>
+- Changed Paths:
+  - apps/platform/src/env.ts
+  - apps/platform/wrangler.jsonc
+  - apps/platform/vitest.config.ts
+  - apps/evals/src/full-path.ts
+  - scripts/dev.mjs
+  - README.md
+  - .projects/state.json
 ## 2026-11-20T08:07:42.706Z
 - Trigger: commit
 - Learning: On staging a reply takes about 11 s, and the model is only 2 to 3.5 s of it. The chat now shows a thinking line at once; the platform time is the next fix.

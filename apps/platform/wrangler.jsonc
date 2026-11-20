@@ -21,9 +21,16 @@
 			{ "queue": "events", "max_batch_size": 10, "max_batch_timeout": 1 }
 		]
 	},
+	// The pool of Cloudflare in front of the staging database: one config for each login user. A transaction then
+	// opens a socket to the pool, not a new connection to Neon. The query cache of each config is off.
+	"hyperdrive": [
+		{ "binding": "PETRA_HYPERDRIVE", "id": "c1c5854a8be447bb9e5594f96c767d36" },
+		{ "binding": "PLATFORM_HYPERDRIVE", "id": "2a473860d4ab410eb802ee19765281d5" },
+		{ "binding": "ADMIN_VIEWS_HYPERDRIVE", "id": "e415969765af45608ab9b66a6d100f71" }
+	],
 	// The schedule of the night job (section 10.1): one tick each hour. The Platform object starts the job of each account.
 	"triggers": { "crons": ["0 * * * *"] },
-	// The settings of section 10. PASS_KEY, LAUNCHER_KEY and the database URLs are secrets (.dev.vars locally).
+	// The settings of section 10. PASS_KEY and LAUNCHER_KEY are secrets (.dev.vars locally).
 	"vars": {
 		"WORKER_COMMIT": "local",
 		"ATTEMPT_MAX_MS": "1800000",
